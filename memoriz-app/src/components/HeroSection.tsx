@@ -11,7 +11,7 @@ const slides = [
     subtitle:
       "Transformez vos moments de vie en albums, magazines et livres personnalisés, conçus pour être ressentis, pas simplement regardés.",
     cta: "Créer mon souvenir",
-    ctaHref: "/albums",
+    ctaHref: "/creer",
   },
   {
     image: "/images/hero/livre/il_1140xN.7586952593_r4q9.jpg",
@@ -19,7 +19,7 @@ const slides = [
     subtitle:
       "Albums photo, magazines et livres de mots croisés personnalisés, créés à partir de votre histoire, avec un design premium.",
     cta: "Créer un cadeau inoubliable",
-    ctaHref: "/albums",
+    ctaHref: "/creer",
   },
   {
     image: "/images/hero/livre/image1.png",
@@ -27,7 +27,7 @@ const slides = [
     subtitle:
       "Albums photo émotionnels, magazines personnalisés et livres de mots croisés, guidés automatiquement, sans compétences créatives.",
     cta: "Commencer la création",
-    ctaHref: "/albums",
+    ctaHref: "/creer",
   },
   {
     image: "/images/hero/livre/image2.png",
@@ -35,7 +35,7 @@ const slides = [
     subtitle:
       "Des pages remplies de souvenirs, de mots et d'émotions. Un cadeau unique qui traverse le temps.",
     cta: "Créer mon livre",
-    ctaHref: "/albums",
+    ctaHref: "/creer",
   },
   {
     image: "/images/hero/livre/image3.png",
@@ -43,7 +43,7 @@ const slides = [
     subtitle:
       "Personnalisé, émouvant et unique. Offrez un souvenir qui fera fondre les cœurs.",
     cta: "Offrir un souvenir unique",
-    ctaHref: "/albums",
+    ctaHref: "/creer",
   },
 ];
 
@@ -69,9 +69,9 @@ export default function HeroSection() {
     goTo((current + 1) % slides.length);
   }, [current, goTo]);
 
-  // Auto-advance every 6 seconds
+  // Auto-advance every 9 seconds
   useEffect(() => {
-    const timer = setInterval(goNext, 6000);
+    const timer = setInterval(goNext, 9000);
     return () => clearInterval(timer);
   }, [goNext]);
 
