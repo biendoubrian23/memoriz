@@ -10,10 +10,15 @@ import type {
   LayoutTemplate,
   UserPhoto,
   PageElement,
+  ProjectOptions,
+  SelectedOptions,
+  ProductOption,
 } from "@/lib/types/editor";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import PageCanvas from "@/components/editor/PageCanvas";
 import EditorHeader from "@/components/editor/EditorHeader";
+import DesignerModal from "@/components/editor/DesignerModal";
+import type { GridCell } from "@/lib/types/editor";
 
 export default function EditorPage() {
   const params = useParams();
@@ -27,9 +32,24 @@ export default function EditorPage() {
   const [photos, setPhotos] = useState<UserPhoto[]>([]);
   const [activePage, setActivePage] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<"photos" | "layouts" | "text" | "settings">("photos");
+  const [sidebarTab, setSidebarTab] = useState<"photos" | "layouts" | "text" | "templates" | "options" | "settings">("photos");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Product options (all available choices)
+  const [productOptions, setProductOptions] = useState<ProjectOptions | null>(null);
+  // Currently selected option IDs
+  const [selectedOptions, setSelectedOptions] = useState<SelectedOptions>({
+    binding_type_id: null,
+    format_id: null,
+    paper_type_id: null,
+    lamination_type_id: null,
+    printing_type_id: null,
+  });
+  // Format reset popup
+  const [formatResetPopup, setFormatResetPopup] = useState<{ newFormatId: string } | null>(null);
+  // Designer modal
+  const [designerPageIndex, setDesignerPageIndex] = useState<number | null>(null);
 
   // Stable client — ne change JAMAIS entre les renders
   const supabase = useMemo(() => createClient(), []);
@@ -38,7 +58,10 @@ export default function EditorPage() {
   const loadProject = useCallback(async () => {
     if (!user) return;
     try {
-      const [projectRes, pagesRes, layoutsRes, photosRes] = await Promise.all([
+      const [
+        projectRes, pagesRes, layoutsRes, photosRes,
+        bindingsRes, formatsRes, papersRes, laminationsRes, printingsRes,
+      ] = await Promise.all([
         supabase.from("projects").select("*").eq("id", projectId).single(),
         supabase
           .from("project_pages")
@@ -51,6 +74,12 @@ export default function EditorPage() {
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false }),
+        // Product options
+        supabase.from("binding_types").select("*").order("display_order"),
+        supabase.from("formats").select("*").order("display_order"),
+        supabase.from("paper_types").select("*").order("display_order"),
+        supabase.from("lamination_types").select("*").order("display_order"),
+        supabase.from("printing_types").select("*").order("display_order"),
       ]);
 
     if (projectRes.data) setProject(projectRes.data as Project);
@@ -157,6 +186,41 @@ export default function EditorPage() {
           .getPublicUrl(p.file_path).data.publicUrl,
       }));
       setPhotos(photosWithUrls);
+    }
+
+    // ── Product options ──
+    const toOption = (row: Record<string, unknown>): ProductOption => ({
+      id: row.id as string,
+      name: row.name as string,
+      slug: row.slug as string,
+      description: (row.description as string) ?? null,
+      image_url: (row.image_url as string) ?? null,
+      display_order: (row.display_order as number) ?? 0,
+      width_cm: row.width_cm as number | undefined,
+      height_cm: row.height_cm as number | undefined,
+      subtitle:
+        row.width_cm && row.height_cm
+          ? `${row.width_cm} × ${row.height_cm} cm`
+          : undefined,
+    });
+
+    setProductOptions({
+      bindings: (bindingsRes.data ?? []).map(toOption),
+      formats: (formatsRes.data ?? []).map(toOption),
+      papers: (papersRes.data ?? []).map(toOption),
+      laminations: (laminationsRes.data ?? []).map(toOption),
+      printings: (printingsRes.data ?? []).map(toOption),
+    });
+
+    if (projectRes.data) {
+      const p = projectRes.data as Project;
+      setSelectedOptions({
+        binding_type_id: p.binding_type_id,
+        format_id: p.format_id,
+        paper_type_id: p.paper_type_id,
+        lamination_type_id: p.lamination_type_id,
+        printing_type_id: p.printing_type_id,
+      });
     }
     } catch (err) {
       console.error("[loadProject] erreur:", err);
@@ -327,6 +391,64 @@ export default function EditorPage() {
     setProject((prev) => (prev ? { ...prev, title } : null));
   };
 
+  // ── Handle option change ──
+  const handleChangeOption = useCallback(
+    async (key: keyof SelectedOptions, id: string) => {
+      if (!project) return;
+
+      // FORMAT change → show confirmation popup instead of applying immediately
+      if (key === "format_id" && id !== selectedOptions.format_id) {
+        setFormatResetPopup({ newFormatId: id });
+        return;
+      }
+
+      // Non-format options → update immediately
+      setSaving(true);
+      const { error } = await supabase
+        .from("projects")
+        .update({ [key]: id })
+        .eq("id", project.id);
+
+      if (!error) {
+        setSelectedOptions((prev) => ({ ...prev, [key]: id }));
+        setProject((prev) => (prev ? { ...prev, [key]: id } : null));
+      }
+      setSaving(false);
+    },
+    [project, selectedOptions.format_id, supabase]
+  );
+
+  // Confirm format change → delete all pages then recreate defaults
+  const confirmFormatChange = useCallback(async () => {
+    if (!formatResetPopup || !project) return;
+    const newFormatId = formatResetPopup.newFormatId;
+    setFormatResetPopup(null);
+
+    setSaving(true);
+    // 1. Delete all project pages (cascade deletes page_elements via FK)
+    await supabase.from("project_pages").delete().eq("project_id", project.id);
+
+    // 2. Update project format
+    await supabase
+      .from("projects")
+      .update({ format_id: newFormatId })
+      .eq("id", project.id);
+
+    setSelectedOptions((prev) => ({ ...prev, format_id: newFormatId }));
+    setProject((prev) => (prev ? { ...prev, format_id: newFormatId } : null));
+
+    // 3. Reload project → loadProject will auto-create the default pages
+    await loadProject();
+    setActivePage(0);
+    setSaving(false);
+  }, [formatResetPopup, project, supabase, loadProject]);
+
+  // Derive format dimensions for canvas rendering
+  const selectedFormat = productOptions?.formats.find(f => f.id === selectedOptions.format_id);
+  const formatDimensions = selectedFormat
+    ? { width_cm: selectedFormat.width_cm ?? 21, height_cm: selectedFormat.height_cm ?? 29.7 }
+    : { width_cm: 21, height_cm: 29.7 };
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -377,15 +499,27 @@ export default function EditorPage() {
           currentLayoutId={pages[activePage]?.layout_id}
           onUploadPhoto={uploadPhoto}
           onSelectLayout={changeLayout}
+          productOptions={productOptions ?? undefined}
+          selectedOptions={selectedOptions}
+          onChangeOption={handleChangeOption}
           onDragPhoto={(photo) => {
-            // Simple: add to first empty cell
+            // Find first empty IMAGE cell (skip text cells)
             const page = pages[activePage];
             if (!page) return;
             const layout = layouts.find((l) => l.id === page.layout_id);
             if (!layout) return;
-            const usedCells = page.elements?.length ?? 0;
-            if (usedCells < layout.grid_config.length) {
-              addElementToPage(photo, usedCells);
+            const emptyCellIdx = layout.grid_config.findIndex((cell, idx) => {
+              if (cell.type === "text") return false;
+              const hasElement = page.elements?.some(
+                (el) =>
+                  el.element_type === "image" &&
+                  Math.abs(el.position_x - cell.x) < 2 &&
+                  Math.abs(el.position_y - cell.y) < 2
+              );
+              return !hasElement;
+            });
+            if (emptyCellIdx >= 0) {
+              addElementToPage(photo, emptyCellIdx);
             }
           }}
         />
@@ -399,6 +533,7 @@ export default function EditorPage() {
                 pages={pages}
                 layouts={layouts}
                 activePage={activePage}
+                formatDimensions={formatDimensions}
                 onSelectPage={setActivePage}
                 onPageAction={(pageIndex, action) => {
                   setActivePage(pageIndex);
@@ -408,15 +543,143 @@ export default function EditorPage() {
                   } else if (action === "layout") {
                     setSidebarTab("layouts");
                     if (!sidebarOpen) setSidebarOpen(true);
+                  } else if (action === "designer") {
+                    setDesignerPageIndex(pageIndex);
                   }
                 }}
                 onRemoveElement={removeElement}
+                onDropPhoto={async (pageIndex, cellIndex, photoUrl) => {
+                  const page = pages[pageIndex];
+                  if (!page) return;
+                  const layout = layouts.find((l) => l.id === page.layout_id);
+                  if (!layout) return;
+                  const cell = layout.grid_config[cellIndex];
+                  if (!cell || cell.type === "text") return;
+
+                  // Check if element already exists at this position
+                  const existing = page.elements?.find(
+                    (el) =>
+                      Math.abs(el.position_x - cell.x) < 2 &&
+                      Math.abs(el.position_y - cell.y) < 2
+                  );
+
+                  setSaving(true);
+                  if (existing) {
+                    await supabase
+                      .from("page_elements")
+                      .update({ content: photoUrl, element_type: "image" })
+                      .eq("id", existing.id);
+                  } else {
+                    await supabase.from("page_elements").insert({
+                      page_id: page.id,
+                      element_type: "image",
+                      content: photoUrl,
+                      position_x: cell.x,
+                      position_y: cell.y,
+                      width: cell.w,
+                      height: cell.h,
+                      rotation: 0,
+                      z_index: (page.elements?.length ?? 0) + 1,
+                    });
+                  }
+                  await loadProject();
+                  setSaving(false);
+                }}
                 onAddPage={addPage}
               />
             </div>
           </div>
         </div>
       </div>
+
+      {/* Designer Modal */}
+      {designerPageIndex !== null && pages[designerPageIndex] && (
+        <DesignerModal
+          page={pages[designerPageIndex]}
+          layouts={layouts}
+          photos={photos}
+          formatDimensions={formatDimensions}
+          onClose={() => setDesignerPageIndex(null)}
+          onUpdateElement={async (
+            pageId: string,
+            cellIndex: number,
+            cell: GridCell,
+            content: string,
+            type: "image" | "text"
+          ) => {
+            setSaving(true);
+            // Check if element already exists at this position
+            const page = pages[designerPageIndex];
+            const existing = page?.elements?.find(
+              (el) =>
+                Math.abs(el.position_x - cell.x) < 2 &&
+                Math.abs(el.position_y - cell.y) < 2
+            );
+            if (existing) {
+              await supabase
+                .from("page_elements")
+                .update({ content, element_type: type })
+                .eq("id", existing.id);
+            } else {
+              await supabase.from("page_elements").insert({
+                page_id: pageId,
+                element_type: type,
+                content,
+                position_x: cell.x,
+                position_y: cell.y,
+                width: cell.w,
+                height: cell.h,
+                rotation: 0,
+                z_index: (page?.elements?.length ?? 0) + 1,
+              });
+            }
+            await loadProject();
+            setSaving(false);
+          }}
+          onSelectLayout={async (layoutId: string) => {
+            const page = pages[designerPageIndex];
+            if (!page) return;
+            setSaving(true);
+            await supabase
+              .from("project_pages")
+              .update({ layout_id: layoutId })
+              .eq("id", page.id);
+            await loadProject();
+            setSaving(false);
+          }}
+        />
+      )}
+
+      {/* Format Reset Confirmation Modal */}
+      {formatResetPopup && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-lg font-bold">
+                ⚠
+              </div>
+              <h3 className="text-lg font-bold text-dark">Changer le format ?</h3>
+            </div>
+            <p className="text-medium-gray text-sm mb-6 leading-relaxed">
+              Changer le format de votre album va <strong className="text-dark">réinitialiser toutes les pages</strong> et supprimer les photos placées sur les pages. Vos photos ajoutées dans l&apos;éditeur seront conservées. Cette action est irréversible.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setFormatResetPopup(null)}
+                className="px-5 py-2.5 rounded-full text-sm font-medium text-medium-gray hover:bg-gray-100 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmFormatChange}
+                className="px-5 py-2.5 rounded-full text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+              >
+                Confirmer le changement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

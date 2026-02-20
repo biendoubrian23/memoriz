@@ -7,6 +7,12 @@ export type GridCell = {
   y: number;
   w: number;
   h: number;
+  type?: "image" | "text";           // default = "image"
+  placeholder?: string;               // e.g. "FASHION", "Subtitle"
+  fontSize?: number;                  // relative % of cell height
+  fontWeight?: "normal" | "bold";     // default bold
+  textAlign?: "left" | "center" | "right";
+  textColor?: string;                 // hex, default "#000000"
 };
 
 export type LayoutTemplate = {
@@ -16,6 +22,7 @@ export type LayoutTemplate = {
   grid_config: GridCell[];
   category: string;
   display_order: number;
+  thumbnail_url?: string | null;       // optional preview image
 };
 
 export type PageElement = {
@@ -68,4 +75,34 @@ export type UserPhoto = {
   height: number | null;
   thumbnail_path: string | null;
   publicUrl?: string;
+};
+
+/* ── Product option types (for the sidebar "Options" tab) ── */
+export type ProductOption = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  image_url: string | null;
+  display_order: number;
+  // Optional extra fields
+  subtitle?: string;
+  width_cm?: number;
+  height_cm?: number;
+};
+
+export type ProjectOptions = {
+  bindings: ProductOption[];
+  formats: ProductOption[];
+  papers: ProductOption[];
+  laminations: ProductOption[];
+  printings: ProductOption[];
+};
+
+export type SelectedOptions = {
+  binding_type_id: string | null;
+  format_id: string | null;
+  paper_type_id: string | null;
+  lamination_type_id: string | null;
+  printing_type_id: string | null;
 };

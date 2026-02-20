@@ -8,6 +8,7 @@ import {
   ImagePlus,
   Plus,
   X,
+  Paintbrush,
 } from "lucide-react";
 import type {
   ProjectPage,
@@ -22,9 +23,11 @@ type Props = {
   layouts: LayoutTemplate[];
   activePage: number;
   onSelectPage: (index: number) => void;
-  onPageAction: (pageIndex: number, action: "photos" | "layout") => void;
+  onPageAction: (pageIndex: number, action: "photos" | "layout" | "designer") => void;
   onRemoveElement: (elementId: string) => void;
+  onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
   onAddPage?: () => void;
+  formatDimensions?: { width_cm: number; height_cm: number };
 };
 
 const MIN_CONTENT_PAGES = 26; // 13 spreads minimum
@@ -41,7 +44,9 @@ export default function PageCanvas({
   onSelectPage,
   onPageAction,
   onRemoveElement,
+  onDropPhoto,
   onAddPage,
+  formatDimensions,
 }: Props) {
   const [coverView, setCoverView] = useState<"front" | "back">("front");
 
@@ -52,6 +57,14 @@ export default function PageCanvas({
       </div>
     );
   }
+
+  /* ── Format-aware dimensions ── */
+  const dims = formatDimensions ?? { width_cm: 21, height_cm: 29.7 };
+  const isLandscape = dims.width_cm > dims.height_cm;
+  const SCALE = 10; // px per cm
+  const pageWidthPx = Math.round(dims.width_cm * SCALE);
+  const spreadWidthPx = pageWidthPx * 2 + 3;
+  const pageAspectRatio = `${dims.width_cm} / ${dims.height_cm}`;
 
   /* ── Separate page types ── */
   const coverIdx = pages.findIndex((p) => p.page_type === "cover");
@@ -73,8 +86,8 @@ export default function PageCanvas({
     });
   }
 
-  /* ── Group spreads into rows of 3 ── */
-  const COLS = 3;
+  /* ── Group spreads into rows ── */
+  const COLS = isLandscape ? 2 : 3;
   const rows: { left: SpreadEntry; right: SpreadEntry }[][] = [];
   for (let i = 0; i < spreads.length; i += COLS) {
     rows.push(spreads.slice(i, i + COLS));
@@ -124,12 +137,14 @@ export default function PageCanvas({
           {/* Cover card */}
           {showCoverPage >= 0 && (
             <div
-              className="group/page relative w-56 cursor-pointer"
+              className="group/page relative cursor-pointer"
+              style={{ width: pageWidthPx }}
               onClick={() => onSelectPage(showCoverPage)}
             >
               <div
-                className="relative aspect-3/4 rounded-xl overflow-hidden ring-1 ring-black/5"
+                className="relative rounded-xl overflow-hidden ring-1 ring-black/5"
                 style={{
+                  aspectRatio: pageAspectRatio,
                   backgroundColor:
                     pages[showCoverPage].background_color || "#FFFFFF",
                   boxShadow:
@@ -139,11 +154,14 @@ export default function PageCanvas({
                 <PageContent
                   page={pages[showCoverPage]}
                   layout={getLayout(pages[showCoverPage])}
+                  pageIndex={showCoverPage}
                   onRemoveElement={onRemoveElement}
+                  onDropPhoto={onDropPhoto}
                 />
                 <PageHoverOverlay
                   onAddPhotos={() => onPageAction(showCoverPage, "photos")}
                   onLayout={() => onPageAction(showCoverPage, "layout")}
+                  onDesigner={() => onPageAction(showCoverPage, "designer")}
                 />
               </div>
               {activePage === showCoverPage && (
@@ -172,6 +190,9 @@ export default function PageCanvas({
                       onSelectPage={onSelectPage}
                       onPageAction={onPageAction}
                       onRemoveElement={onRemoveElement}
+                      onDropPhoto={onDropPhoto}
+                      spreadWidthPx={spreadWidthPx}
+                      pageAspectRatio={pageAspectRatio}
                     />
                   );
                 })}
@@ -263,13 +284,19 @@ function SpreadBlock({
   onSelectPage,
   onPageAction,
   onRemoveElement,
+  onDropPhoto,
+  spreadWidthPx,
+  pageAspectRatio,
 }: {
   spread: { left: SpreadEntry; right: SpreadEntry };
   activePage: number;
   getLayout: (p: ProjectPage) => LayoutTemplate | null;
   onSelectPage: (idx: number) => void;
-  onPageAction: (idx: number, action: "photos" | "layout") => void;
+  onPageAction: (idx: number, action: "photos" | "layout" | "designer") => void;
   onRemoveElement: (id: string) => void;
+  onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
+  spreadWidthPx: number;
+  pageAspectRatio: string;
 }) {
   return (
     <div className="flex flex-col">
@@ -293,7 +320,7 @@ function SpreadBlock({
       </div>
 
       {/* Book spread */}
-      <div className="flex w-[420px]">
+      <div className="flex" style={{ width: spreadWidthPx }}>
         {/* Left page */}
         <SpreadPage
           entry={spread.left}
@@ -303,6 +330,8 @@ function SpreadBlock({
           onSelectPage={onSelectPage}
           onPageAction={onPageAction}
           onRemoveElement={onRemoveElement}
+          onDropPhoto={onDropPhoto}
+          pageAspectRatio={pageAspectRatio}
         />
 
         {/* Spine */}
@@ -323,6 +352,8 @@ function SpreadBlock({
           onSelectPage={onSelectPage}
           onPageAction={onPageAction}
           onRemoveElement={onRemoveElement}
+          onDropPhoto={onDropPhoto}
+          pageAspectRatio={pageAspectRatio}
         />
       </div>
     </div>
@@ -338,21 +369,25 @@ function SpreadPage({
   onSelectPage,
   onPageAction,
   onRemoveElement,
+  onDropPhoto,
+  pageAspectRatio,
 }: {
   entry: SpreadEntry;
   side: "left" | "right";
   isActive: boolean;
   getLayout: (p: ProjectPage) => LayoutTemplate | null;
   onSelectPage: (idx: number) => void;
-  onPageAction: (idx: number, action: "photos" | "layout") => void;
+  onPageAction: (idx: number, action: "photos" | "layout" | "designer") => void;
   onRemoveElement: (id: string) => void;
+  onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
+  pageAspectRatio: string;
 }) {
   const borderRadius = side === "left" ? "rounded-l" : "rounded-r";
 
   if (!entry) {
     return (
       <div className={`flex-1 ${borderRadius} overflow-hidden`}>
-        <div className="relative aspect-3/4 bg-gray-50 border border-dashed border-gray-200">
+        <div className="relative bg-gray-50 border border-dashed border-gray-200" style={{ aspectRatio: pageAspectRatio }}>
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="text-xs text-gray-300">—</p>
           </div>
@@ -367,19 +402,23 @@ function SpreadPage({
       onClick={() => onSelectPage(entry.idx)}
     >
       <div
-        className="relative aspect-3/4 border border-dashed border-gray-200"
+        className="relative border border-dashed border-gray-200"
         style={{
+          aspectRatio: pageAspectRatio,
           backgroundColor: entry.page.background_color || "#FFFFFF",
         }}
       >
         <PageContent
           page={entry.page}
           layout={getLayout(entry.page)}
+          pageIndex={entry.idx}
           onRemoveElement={onRemoveElement}
+          onDropPhoto={onDropPhoto}
         />
         <PageHoverOverlay
           onAddPhotos={() => onPageAction(entry.idx, "photos")}
           onLayout={() => onPageAction(entry.idx, "layout")}
+          onDesigner={() => onPageAction(entry.idx, "designer")}
         />
       </div>
       {/* Active ring */}
@@ -396,9 +435,11 @@ function SpreadPage({
 function PageHoverOverlay({
   onAddPhotos,
   onLayout,
+  onDesigner,
 }: {
   onAddPhotos: () => void;
   onLayout: () => void;
+  onDesigner: () => void;
 }) {
   return (
     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/0 group-hover/page:bg-black/25 transition-all duration-200 pointer-events-none group-hover/page:pointer-events-auto">
@@ -433,6 +474,22 @@ function PageHoverOverlay({
         <LayoutGrid className="w-3.5 h-3.5" />
         Mise en page
       </button>
+
+      {/* Designer */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDesigner();
+        }}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-xs font-medium text-dark shadow-md
+          opacity-0 translate-y-2
+          group-hover/page:opacity-100 group-hover/page:translate-y-0
+          transition-all duration-200 delay-150
+          hover:bg-accent hover:text-white"
+      >
+        <Paintbrush className="w-3.5 h-3.5" />
+        Designer
+      </button>
     </div>
   );
 }
@@ -441,12 +498,17 @@ function PageHoverOverlay({
 function PageContent({
   page,
   layout,
+  pageIndex,
   onRemoveElement,
+  onDropPhoto,
 }: {
   page: ProjectPage;
   layout: LayoutTemplate | null;
+  pageIndex: number;
   onRemoveElement: (id: string) => void;
+  onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
 }) {
+  const [dragOverCell, setDragOverCell] = useState<number | null>(null);
   const cells = layout?.grid_config ?? [];
   const elements = page.elements ?? [];
 
@@ -471,6 +533,8 @@ function PageContent({
     <>
       {cells.map((cell, i) => {
         const el = getElement(cell, i);
+        const isTextCell = cell.type === "text";
+
         return (
           <div
             key={i}
@@ -482,15 +546,82 @@ function PageContent({
               height: `${cell.h}%`,
             }}
           >
-            {el?.element_type === "image" ? (
-              <div className="w-full h-full relative rounded-sm overflow-hidden group/cell">
+            {isTextCell ? (
+              /* ── Text zone ── */
+              <div
+                className="w-full h-full flex items-center overflow-hidden px-[4%]"
+                style={{
+                  justifyContent:
+                    cell.textAlign === "right"
+                      ? "flex-end"
+                      : cell.textAlign === "center"
+                      ? "center"
+                      : "flex-start",
+                }}
+              >
+                {el?.element_type === "text" && el.content ? (
+                  <span
+                    className="leading-tight truncate"
+                    style={{
+                      fontWeight: cell.fontWeight ?? "bold",
+                      color: cell.textColor ?? "#000",
+                      fontSize: `${cell.fontSize ?? 40}%`,
+                    }}
+                  >
+                    {el.content}
+                  </span>
+                ) : (
+                  <span
+                    className="leading-tight truncate opacity-30"
+                    style={{
+                      fontWeight: cell.fontWeight ?? "bold",
+                      color: cell.textColor ?? "#999",
+                      fontSize: `${cell.fontSize ?? 40}%`,
+                    }}
+                  >
+                    {cell.placeholder ?? "Texte"}
+                  </span>
+                )}
+              </div>
+            ) : el?.element_type === "image" ? (
+              <div
+                className="w-full h-full relative rounded-sm overflow-hidden group/cell"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDragOverCell(i);
+                }}
+                onDragLeave={(e) => {
+                  e.stopPropagation();
+                  setDragOverCell(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragOverCell(null);
+                  const data = e.dataTransfer.getData("application/memoriz-photo");
+                  if (data && onDropPhoto) {
+                    const photo = JSON.parse(data);
+                    onDropPhoto(pageIndex, i, photo.publicUrl || photo.file_path);
+                  }
+                }}
+              >
                 <Image
                   src={el.content}
                   alt=""
                   fill
-                  className="object-cover"
+                  className="object-cover pointer-events-none"
                   sizes="300px"
                 />
+                {/* Drop overlay */}
+                {dragOverCell === i && (
+                  <div className="absolute inset-0 bg-primary/30 ring-2 ring-primary z-10 flex items-center justify-center">
+                    <span className="text-white text-[10px] font-bold bg-primary/80 px-2 py-1 rounded-full shadow">
+                      Remplacer
+                    </span>
+                  </div>
+                )}
                 <button
                   title="Supprimer"
                   onClick={(e) => {
@@ -504,8 +635,34 @@ function PageContent({
                 </button>
               </div>
             ) : (
-              <div className="w-full h-full border border-dashed border-gray-200 rounded-sm flex items-center justify-center bg-gray-50/30">
-                <ImagePlus className="w-5 h-5 text-pink-300" />
+              <div
+                className={`w-full h-full border border-dashed rounded-sm flex items-center justify-center transition-colors ${
+                  dragOverCell === i
+                    ? "border-primary bg-primary/10 ring-2 ring-primary/40"
+                    : "border-gray-200 bg-gray-50/30"
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDragOverCell(i);
+                }}
+                onDragLeave={(e) => {
+                  e.stopPropagation();
+                  setDragOverCell(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragOverCell(null);
+                  const data = e.dataTransfer.getData("application/memoriz-photo");
+                  if (data && onDropPhoto) {
+                    const photo = JSON.parse(data);
+                    onDropPhoto(pageIndex, i, photo.publicUrl || photo.file_path);
+                  }
+                }}
+              >
+                <ImagePlus className={`w-5 h-5 ${dragOverCell === i ? "text-primary" : "text-pink-300"}`} />
               </div>
             )}
           </div>
