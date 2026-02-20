@@ -30,7 +30,7 @@
 }
 
 body {
-  background: var(--background);
+  background: linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(252,231,237,0.25) 35%, rgba(232,238,252,0.25) 65%, rgba(255,255,255,1) 100%);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
@@ -88,20 +88,80 @@ html {
   animation: fadeIn 0.6s ease-out forwards;
 }
 
-/* Blob floating animations */
-@keyframes floatSlow {
+/* Blob floating animations — each with different rhythm & direction */
+@keyframes float1 {
   0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-12px) rotate(8deg); }
+  50% { transform: translateY(-10px) rotate(3deg); }
 }
-@keyframes floatSlowReverse {
+@keyframes float2 {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  33% { transform: translateY(-8px) translateX(4px); }
+  66% { transform: translateY(4px) translateX(-3px); }
+}
+@keyframes float3 {
   0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(10px) rotate(-6deg); }
+  50% { transform: translateY(8px) rotate(-4deg); }
 }
-.animate-float-slow {
-  animation: floatSlow 6s ease-in-out infinite;
+@keyframes float4 {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  50% { transform: translateX(-6px) translateY(-5px); }
 }
-.animate-float-slow-reverse {
-  animation: floatSlowReverse 7s ease-in-out infinite;
+.animate-float-1 { animation: float1 6s ease-in-out infinite; }
+.animate-float-2 { animation: float2 8s ease-in-out infinite; }
+.animate-float-3 { animation: float3 7s ease-in-out infinite; }
+.animate-float-4 { animation: float4 9s ease-in-out infinite; }
+
+/* Testimonials infinite scroll */
+@keyframes scroll-testimonials {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-scroll-testimonials {
+  animation: scroll-testimonials 60s linear infinite;
+}
+
+/* Hero section — discrete text transitions */
+.hero-text-transition {
+  transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hero-visible {
+  opacity: 1;
+}
+.hero-hidden {
+  opacity: 0;
+}
+.hero-delay-1 {
+  transition-delay: 0.08s;
+}
+.hero-delay-2 {
+  transition-delay: 0.16s;
+}
+
+/* Hero blob styles */
+.hero-gradient-bg {
+  background: linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(252,231,237,0.25) 35%, rgba(232,238,252,0.25) 65%, rgba(255,255,255,1) 100%);
+}
+
+.hero-font-heading {
+  font-family: var(--font-dm-serif), Georgia, serif;
+}
+
+.hero-font-body {
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.hero-blob-clip {
+  -webkit-clip-path: url(#hero-blob-clip);
+  clip-path: url(#hero-blob-clip);
+}
+
+.hero-blob-shadow {
+  filter: drop-shadow(0 16px 40px rgba(0, 0, 0, 0.12)) drop-shadow(0 6px 16px rgba(0, 0, 0, 0.06));
+}
+
+/* Transition duration 800ms utility */
+.duration-800 {
+  transition-duration: 800ms;
 }
 
 /* Horizontal scroll section */
@@ -111,4 +171,12 @@ html {
 }
 .scroll-container::-webkit-scrollbar {
   display: none;
+}
+
+/* Theme scroll edge fades */
+.theme-fade-left {
+  background: linear-gradient(to right, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 100%);
+}
+.theme-fade-right {
+  background: linear-gradient(to left, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 100%);
 }

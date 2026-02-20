@@ -1,77 +1,70 @@
-import { Sparkles, Palette, Brain, Heart } from "lucide-react";
-
 const steps = [
   {
-    icon: Sparkles,
-    step: "01",
+    number: "01",
     title: "Choisissez votre produit",
-    description: "Album, magazine ou mots croisés — sélectionnez le format qui vous parle.",
+    description: "Album, magazine ou livre — sélectionnez le format qui vous parle.",
   },
   {
-    icon: Palette,
-    step: "02",
+    number: "02",
     title: "Sélectionnez un template",
-    description: "Des designs émotionnels et guidés, pensés pour chaque occasion.",
+    description: "Des designs élégants et guidés, pensés pour chaque occasion.",
   },
   {
-    icon: Brain,
-    step: "03",
-    title: "Laissez-vous guider",
+    number: "03",
+    title: "Personnalisez",
     description: "Ajoutez vos photos et textes. Memoriz s'occupe de la mise en page.",
   },
   {
-    icon: Heart,
-    step: "04",
+    number: "04",
     title: "Recevez et offrez",
-    description: "Votre création est imprimée avec soin et livrée chez vous. L'émotion est garantie.",
+    description: "Imprimé avec soin et livré chez vous. L'émotion est garantie.",
   },
 ];
 
 export default function HowItWorksSection() {
   return (
-    <section className="py-20 sm:py-28 bg-white">
+    <section className="py-20 sm:py-28">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="text-center mb-16">
-          <span className="inline-block px-4 py-1.5 bg-accent/10 text-accent text-sm font-semibold rounded-full mb-4">
-            Comment ça marche
-          </span>
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-dark mb-4">
+        <div className="text-center mb-16 sm:mb-20">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-dark tracking-tight hero-font-heading">
             Créer un souvenir en 4 étapes
           </h2>
-          <p className="text-lg text-medium-gray max-w-2xl mx-auto">
+          <p className="mt-4 text-base sm:text-lg text-medium-gray max-w-xl mx-auto hero-font-body">
             Pas besoin de compétences créatives. Memoriz vous guide du début à la fin.
           </p>
         </div>
 
-        {/* Steps */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          {steps.map((step, index) => (
-            <div
-              key={index}
-              className="relative group text-center p-8 rounded-2xl bg-soft-gray hover:bg-white hover:shadow-lg transition-all duration-300"
-            >
-              {/* Step number */}
-              <div className="absolute top-4 right-4 text-5xl font-black text-gray-100 group-hover:text-primary/10 transition-colors">
-                {step.step}
+        {/* Steps — Desktop: horizontal timeline / Mobile: vertical */}
+        <div className="relative">
+
+          {/* Horizontal connector line (desktop only) */}
+          <div className="hidden lg:block absolute top-8 left-[12.5%] right-[12.5%] h-px bg-gray-200" />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-12 lg:gap-0">
+            {steps.map((step, index) => (
+              <div key={index} className="relative flex flex-col items-center text-center px-6">
+
+                {/* Number circle */}
+                <div className="relative z-10 w-16 h-16 rounded-full border-2 border-primary/30 bg-white flex items-center justify-center mb-6 transition-all duration-300 hover:border-primary hover:shadow-md">
+                  <span className="text-xl font-black text-primary hero-font-heading">
+                    {step.number}
+                  </span>
+                </div>
+
+                {/* Title */}
+                <h3 className="text-lg font-bold text-dark mb-2 hero-font-heading">
+                  {step.title}
+                </h3>
+
+                {/* Description */}
+                <p className="text-sm text-medium-gray leading-relaxed max-w-55 hero-font-body">
+                  {step.description}
+                </p>
+
               </div>
-
-              {/* Icon */}
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 rounded-2xl mb-6 group-hover:bg-primary/20 transition-colors">
-                <step.icon size={28} className="text-primary" />
-              </div>
-
-              <h3 className="text-lg font-bold text-dark mb-3">{step.title}</h3>
-              <p className="text-sm text-medium-gray leading-relaxed">
-                {step.description}
-              </p>
-
-              {/* Connector line for desktop */}
-              {index < steps.length - 1 && (
-                <div className="hidden lg:block absolute top-1/2 -right-4 w-8 border-t-2 border-dashed border-gray-200" />
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </section>

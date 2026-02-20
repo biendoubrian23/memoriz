@@ -26,17 +26,16 @@ const dmSerif = DM_Serif_Display({
   variable: "--font-dm-serif",
   subsets: ["latin"],
   weight: ["400"],
-  style: ["normal", "italic"],
+  style: ["normal"],
 });
 
 export const metadata: Metadata = {
   title: "Memoriz — Vos souvenirs méritent mieux qu'un écran",
   description:
-    "Transformez vos moments de vie en albums photo, magazines personnalisés et livres de mots croisés. Créations émotionnelles, design premium, ultra simples à réaliser.",
+    "Transformez vos moments de vie en albums photo et magazines personnalisés. Créations émotionnelles, design premium, ultra simples à réaliser.",
   keywords: [
     "album photo personnalisé",
     "magazine personnalisé",
-    "mots croisés personnalisés",
     "cadeau émotion",
     "souvenir photo",
     "Memoriz",
@@ -44,7 +43,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Memoriz — Vos souvenirs méritent mieux qu'un écran",
     description:
-      "Albums photo émotionnels, magazines personnalisés et livres de mots croisés. Créations guidées, design premium.",
+      "Albums photo émotionnels et magazines personnalisés. Créations guidées, design premium.",
     type: "website",
   },
 };
@@ -57,7 +56,7 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} ${dmSerif.variable} antialiased bg-white`}
+        className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} ${dmSerif.variable} antialiased`}
       >
         <Header />
         <main>{children}</main>

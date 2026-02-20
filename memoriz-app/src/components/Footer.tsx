@@ -6,7 +6,6 @@ const footerLinks = {
   produits: [
     { href: "/albums", label: "Albums photo" },
     { href: "/magazines", label: "Magazines personnalisés" },
-    { href: "/mots-croises", label: "Mots croisés" },
   ],
   entreprise: [
     { href: "/contact", label: "Contact" },

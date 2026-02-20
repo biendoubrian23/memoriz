@@ -172,7 +172,7 @@ export default function AlbumsPage() {
       </section>
 
       {/* Album Types */}
-      <section id="types" className="py-20 sm:py-28 bg-white">
+      <section id="types" className="py-20 sm:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold text-dark mb-4">
@@ -213,7 +213,7 @@ export default function AlbumsPage() {
       </section>
 
       {/* Gallery */}
-      <section id="galerie" className="py-20 sm:py-28 bg-soft-gray">
+      <section id="galerie" className="py-20 sm:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="text-3xl sm:text-4xl font-bold text-dark mb-4">
@@ -249,7 +249,7 @@ export default function AlbumsPage() {
       </section>
 
       {/* Features */}
-      <section className="py-20 sm:py-28 bg-white">
+      <section className="py-20 sm:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
             <div>
@@ -291,7 +291,7 @@ export default function AlbumsPage() {
       </section>
 
       {/* Pricing */}
-      <section className="py-20 sm:py-28 bg-soft-gray">
+      <section className="py-20 sm:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="text-3xl sm:text-4xl font-bold text-dark mb-4">
@@ -385,7 +385,7 @@ export default function AlbumsPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-20 bg-white">
+      <section className="py-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-dark mb-4">
             Prêt à créer votre album ?

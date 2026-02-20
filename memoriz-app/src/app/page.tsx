@@ -1,6 +1,6 @@
 import HeroSection from "@/components/HeroSection";
-import SearchSection from "@/components/SearchSection";
-import ProductsSection from "@/components/ProductsSection";
+import ThemesSection from "@/components/ThemesSection";
+import DragDropSection from "@/components/DragDropSection";
 import HowItWorksSection from "@/components/HowItWorksSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
 import CTASection from "@/components/CTASection";
@@ -9,11 +9,10 @@ export default function Home() {
   return (
     <>
       <HeroSection />
-      <SearchSection />
-      <ProductsSection />
+      <ThemesSection />
+      <DragDropSection />
       <HowItWorksSection />
       <TestimonialsSection />
-      <CTASection />
     </>
   );
 }

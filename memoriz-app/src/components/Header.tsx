@@ -8,7 +8,6 @@ import { Menu, X, User, ChevronDown } from "lucide-react";
 const navLinks = [
   { href: "/albums", label: "Albums" },
   { href: "/magazines", label: "Magazines" },
-  { href: "/mots-croises", label: "Mots Croisés" },
   { href: "/contact", label: "Contact" },
 ];
 
@@ -22,11 +21,11 @@ export default function Header() {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 shrink-0">
             <Image
-              src="/images/logo.png"
+              src="/images/logo (2).png"
               alt="Memoriz"
-              width={140}
-              height={40}
-              className="h-8 sm:h-10 w-auto"
+              width={237}
+              height={68}
+              className="h-13 sm:h-17 w-auto"
               priority
             />
           </Link>

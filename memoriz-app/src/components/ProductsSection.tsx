@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { BookOpen, Newspaper, Puzzle } from "lucide-react";
+import { BookOpen, Newspaper } from "lucide-react";
 
 const products = [
   {
@@ -25,22 +25,11 @@ const products = [
     price: "À partir de 24 €",
     features: ["Format magazine réel", "Templates élégants", "Personnalisation totale"],
   },
-  {
-    icon: Puzzle,
-    title: "Mots croisés personnalisés",
-    description:
-      "Un concept unique : des livres de mots croisés générés à partir de votre histoire personnelle. Le cadeau le plus original.",
-    image: "/images/hero/magazine/magazine4.jpg",
-    href: "/mots-croises",
-    badge: "Innovation",
-    price: "À partir de 19 €",
-    features: ["Générés automatiquement", "Thèmes personnalisés", "Photos + jeu + émotion"],
-  },
 ];
 
 export default function ProductsSection() {
   return (
-    <section className="py-20 sm:py-28 bg-soft-gray">
+    <section className="py-20 sm:py-28">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-16">

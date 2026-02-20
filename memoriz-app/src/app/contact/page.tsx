@@ -105,7 +105,6 @@ export default function ContactPage() {
                     <option value="question">Question générale</option>
                     <option value="album">À propos des albums</option>
                     <option value="magazine">À propos des magazines</option>
-                    <option value="crossword">À propos des mots croisés</option>
                     <option value="order">Suivi de commande</option>
                     <option value="partnership">Partenariat</option>
                     <option value="other">Autre</option>
@@ -136,7 +135,7 @@ export default function ContactPage() {
       </section>
 
       {/* FAQ mini */}
-      <section className="py-20 bg-soft-gray">
+      <section className="py-20">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-2xl sm:text-3xl font-bold text-dark text-center mb-12">
             Questions fréquentes
