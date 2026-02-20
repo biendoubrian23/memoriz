@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import {
   ImageIcon,
@@ -12,7 +13,10 @@ import {
   Upload,
   X,
   Loader2,
+  LogOut,
+  FolderOpen,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth/AuthContext";
 import type { LayoutTemplate, UserPhoto, GridCell } from "@/lib/types/editor";
 
 type SidebarTab = "photos" | "layouts" | "text" | "settings";
@@ -89,6 +93,22 @@ export default function EditorSidebar({
             <span className="text-[10px] leading-none">{tab.label}</span>
           </button>
         ))}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Mes projets link */}
+        <Link
+          href="/mes-projets"
+          className="w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all text-xs text-gray-400 hover:text-primary hover:bg-primary/5"
+          title="Mes projets"
+        >
+          <FolderOpen className="w-5 h-5" />
+          <span className="text-[10px] leading-none">Projets</span>
+        </Link>
+
+        {/* User avatar + logout at bottom */}
+        <UserBottomSection />
       </div>
 
       {/* Panel */}
@@ -331,6 +351,67 @@ export default function EditorSidebar({
         >
           <ChevronRight className="w-3 h-3" />
         </button>
+      )}
+    </div>
+  );
+}
+
+/* ── User info + logout at bottom of icon bar ── */
+function UserBottomSection() {
+  const { user, profile, signOut } = useAuth();
+  const [showPopup, setShowPopup] = useState(false);
+
+  if (!user) return null;
+
+  const initials = profile?.first_name && profile?.last_name
+    ? `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase()
+    : user.email?.[0]?.toUpperCase() ?? "U";
+
+  const displayName = profile?.first_name && profile?.last_name
+    ? `${profile.first_name} ${profile.last_name}`
+    : user.email ?? "";
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowPopup(!showPopup)}
+        className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold hover:bg-primary-dark transition-colors mb-2"
+        title={displayName}
+      >
+        {initials}
+      </button>
+
+      {showPopup && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowPopup(false)} />
+          <div className="absolute left-14 bottom-0 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 py-3 animate-fade-in">
+            {/* User info */}
+            <div className="px-4 pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold shrink-0">
+                  {initials}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-dark truncate">{displayName}</p>
+                  <p className="text-xs text-medium-gray truncate">{user.email}</p>
+                </div>
+              </div>
+            </div>
+            {/* Logout */}
+            <div className="pt-1">
+              <button
+                onClick={async () => {
+                  setShowPopup(false);
+                  await signOut();
+                }}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors w-full"
+              >
+                <LogOut size={16} />
+                Se déconnecter
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

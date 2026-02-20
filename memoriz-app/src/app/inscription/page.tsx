@@ -40,19 +40,24 @@ export default function InscriptionPage() {
     }
 
     setLoading(true);
-    const { error: signUpError } = await signUp(email, password, firstName, lastName);
+    try {
+      const { error: signUpError } = await signUp(email, password, firstName, lastName);
 
-    if (signUpError) {
-      setError(signUpError);
-      setLoading(false);
-    } else {
-      // Check for pending config from creation wizard
-      const pendingConfig = localStorage.getItem("memoriz_pending_config");
-      if (pendingConfig) {
-        router.push("/creer?step=connect-success");
+      if (signUpError) {
+        setError(signUpError);
+        setLoading(false);
       } else {
-        router.push("/");
+        // Check for pending config from creation wizard
+        const pendingConfig = localStorage.getItem("memoriz_pending_config");
+        if (pendingConfig) {
+          router.push("/creer?step=connect-success");
+        } else {
+          router.push("/");
+        }
       }
+    } catch {
+      setError("Une erreur inattendue est survenue. Veuillez réessayer.");
+      setLoading(false);
     }
   };
 
@@ -68,13 +73,14 @@ export default function InscriptionPage() {
               width={160}
               height={45}
               className="h-12 w-auto mx-auto mb-4"
+              style={{ width: 'auto', height: 'auto' }}
             />
+
             <h1 className="text-2xl font-bold text-dark">Créer votre compte</h1>
             <p className="text-sm text-medium-gray mt-1">
               Rejoignez Memoriz et commencez à créer vos souvenirs
             </p>
           </div>
-
           {/* Google Sign-Up */}
           <button
             type="button"

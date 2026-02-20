@@ -4,6 +4,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 const themes = [
   {
@@ -65,6 +66,7 @@ const themes = [
 ];
 
 export default function ThemesSection() {
+  const { user } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -158,7 +160,7 @@ export default function ThemesSection() {
             {themes.map((theme) => (
               <Link
                 key={theme.title}
-                href={theme.ctaHref}
+                href={user ? "/mes-projets" : theme.ctaHref}
                 className="group relative flex flex-col overflow-hidden rounded-2xl bg-soft-gray transition-all duration-300 hover:shadow-xl hover:-translate-y-1 shrink-0 w-[46%] sm:w-[30%] lg:w-[23%]"
               >
                 {/* Image */}

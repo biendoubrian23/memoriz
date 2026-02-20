@@ -35,10 +35,7 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
-/* Smooth scrolling */
-html {
-  scroll-behavior: smooth;
-}
+
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {

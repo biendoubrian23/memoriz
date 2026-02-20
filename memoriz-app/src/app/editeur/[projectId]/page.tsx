@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { createClient } from "@/lib/supabase/client";
@@ -13,7 +13,6 @@ import type {
 } from "@/lib/types/editor";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import PageCanvas from "@/components/editor/PageCanvas";
-import PageThumbnails from "@/components/editor/PageThumbnails";
 import EditorHeader from "@/components/editor/EditorHeader";
 
 export default function EditorPage() {
@@ -32,42 +31,111 @@ export default function EditorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const supabase = createClient();
-
-  // Redirect if not authenticated
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/connexion");
-    }
-  }, [user, authLoading, router]);
+  // Stable client — ne change JAMAIS entre les renders
+  const supabase = useMemo(() => createClient(), []);
 
   // Load project data
   const loadProject = useCallback(async () => {
     if (!user) return;
-
-    const [projectRes, pagesRes, layoutsRes, photosRes] = await Promise.all([
-      supabase.from("projects").select("*").eq("id", projectId).single(),
-      supabase
-        .from("project_pages")
-        .select("*, page_elements(*)")
-        .eq("project_id", projectId)
-        .order("page_number"),
-      supabase.from("layout_templates").select("*").order("display_order"),
-      supabase
-        .from("user_photos")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false }),
-    ]);
+    try {
+      const [projectRes, pagesRes, layoutsRes, photosRes] = await Promise.all([
+        supabase.from("projects").select("*").eq("id", projectId).single(),
+        supabase
+          .from("project_pages")
+          .select("*, page_elements(*)")
+          .eq("project_id", projectId)
+          .order("page_number"),
+        supabase.from("layout_templates").select("*").order("display_order"),
+        supabase
+          .from("user_photos")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
     if (projectRes.data) setProject(projectRes.data as Project);
     if (pagesRes.data) {
-      const pagesWithElements = (pagesRes.data as (ProjectPage & { page_elements: PageElement[] })[]).map(
-        (p) => ({
-          ...p,
-          elements: p.page_elements ?? [],
-        })
-      );
+      let pagesData = pagesRes.data as (ProjectPage & { page_elements: PageElement[] })[];
+
+      // ── Ensure the project always has: cover + 26 content pages + back_cover ──
+      if (projectRes.data) {
+        const hasCover = pagesData.some((p) => p.page_type === "cover");
+        const hasBackCover = pagesData.some((p) => p.page_type === "back_cover");
+        const backCoverRow = pagesData.find((p) => p.page_type === "back_cover");
+        const contentPages = pagesData.filter((p) => p.page_type === "content");
+        const missingContent = 26 - contentPages.length;
+
+        if (!hasCover || missingContent > 0 || !hasBackCover) {
+          const toInsert: Record<string, unknown>[] = [];
+
+          // Add cover if missing
+          if (!hasCover) {
+            toInsert.push({ project_id: projectId, page_number: 0, page_type: "cover", layout_id: "cover-full", background_color: "#FFFFFF" });
+          }
+
+          if (missingContent > 0) {
+            // Move back_cover out of the way FIRST to avoid unique conflict
+            if (backCoverRow) {
+              await supabase
+                .from("project_pages")
+                .update({ page_number: 999 })
+                .eq("id", backCoverRow.id);
+            }
+
+            // Find which page_numbers 1-26 are already taken
+            const usedNumbers = new Set(contentPages.map((p) => p.page_number));
+            let added = 0;
+            for (let n = 1; n <= 26 && added < missingContent; n++) {
+              if (!usedNumbers.has(n)) {
+                toInsert.push({
+                  project_id: projectId,
+                  page_number: n,
+                  page_type: "content",
+                  layout_id: "1-full",
+                  background_color: "#FFFFFF",
+                });
+                added++;
+              }
+            }
+          }
+
+          // Insert missing pages
+          if (toInsert.length > 0) {
+            await supabase.from("project_pages").insert(toInsert);
+          }
+
+          // Ensure back_cover is at page_number 27
+          if (backCoverRow) {
+            await supabase
+              .from("project_pages")
+              .update({ page_number: 27 })
+              .eq("id", backCoverRow.id);
+          } else if (!hasBackCover) {
+            await supabase.from("project_pages").insert({
+              project_id: projectId,
+              page_number: 27,
+              page_type: "back_cover",
+              layout_id: "cover-centered",
+              background_color: "#FFFFFF",
+            });
+          }
+
+          // Reload pages after changes
+          const { data: reloaded } = await supabase
+            .from("project_pages")
+            .select("*, page_elements(*)")
+            .eq("project_id", projectId)
+            .order("page_number");
+          if (reloaded) {
+            pagesData = reloaded as (ProjectPage & { page_elements: PageElement[] })[];
+          }
+        }
+      }
+
+      const pagesWithElements = pagesData.map((p) => ({
+        ...p,
+        elements: p.page_elements ?? [],
+      }));
       setPages(pagesWithElements);
     }
     if (layoutsRes.data) {
@@ -90,43 +158,61 @@ export default function EditorPage() {
       }));
       setPhotos(photosWithUrls);
     }
-
-    setLoading(false);
+    } catch (err) {
+      console.error("[loadProject] erreur:", err);
+    } finally {
+      setLoading(false);
+    }
   }, [user, projectId, supabase]);
 
+  // Redirect if not authenticated — load project once auth resolves
   useEffect(() => {
-    if (user) loadProject();
-  }, [user, loadProject]);
-
-  // Add a new page
-  const addPage = async () => {
-    const newPageNumber = pages.length > 0 ? Math.max(...pages.map(p => p.page_number)) + 1 : 1;
-    // Insert before back cover
-    const backCoverIdx = pages.findIndex((p) => p.page_type === "back_cover");
-
-    const { data, error } = await supabase
-      .from("project_pages")
-      .insert({
-        project_id: projectId,
-        page_number: backCoverIdx >= 0 ? pages[backCoverIdx].page_number : newPageNumber,
-        page_type: "content",
-        layout_id: "1-full",
-        background_color: "#FFFFFF",
-      })
-      .select()
-      .single();
-
-    if (!error && data) {
-      // If there's a back cover, shift it
-      if (backCoverIdx >= 0) {
-        await supabase
-          .from("project_pages")
-          .update({ page_number: (data as ProjectPage).page_number + 1 })
-          .eq("id", pages[backCoverIdx].id);
-      }
-      await loadProject();
-      setActivePage(backCoverIdx >= 0 ? backCoverIdx : pages.length);
+    if (!authLoading && !user) {
+      router.push("/connexion");
     }
+    if (!authLoading && user) {
+      loadProject();
+    }
+  }, [user, authLoading, router, loadProject]);
+
+  // Add a new spread (2 pages) before back cover
+  const addPage = async () => {
+    const backCoverPage = pages.find((p) => p.page_type === "back_cover");
+
+    if (backCoverPage) {
+      // Step 1: move back_cover to a high temp number to avoid UNIQUE conflict
+      await supabase
+        .from("project_pages")
+        .update({ page_number: backCoverPage.page_number + 2 })
+        .eq("id", backCoverPage.id);
+
+      // Step 2: insert 2 new content pages (one spread)
+      await supabase.from("project_pages").insert([
+        {
+          project_id: projectId,
+          page_number: backCoverPage.page_number,
+          page_type: "content",
+          layout_id: "1-full",
+          background_color: "#FFFFFF",
+        },
+        {
+          project_id: projectId,
+          page_number: backCoverPage.page_number + 1,
+          page_type: "content",
+          layout_id: "1-full",
+          background_color: "#FFFFFF",
+        },
+      ]);
+    } else {
+      // No back cover — just append 2 content pages
+      const maxNum = pages.length > 0 ? Math.max(...pages.map((p) => p.page_number)) : 0;
+      await supabase.from("project_pages").insert([
+        { project_id: projectId, page_number: maxNum + 1, page_type: "content", layout_id: "1-full", background_color: "#FFFFFF" },
+        { project_id: projectId, page_number: maxNum + 2, page_type: "content", layout_id: "1-full", background_color: "#FFFFFF" },
+      ]);
+    }
+
+    await loadProject();
   };
 
   // Delete a page
@@ -307,22 +393,28 @@ export default function EditorPage() {
         {/* Main Editor Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Canvas */}
-          <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
-            <PageCanvas
-              page={pages[activePage]}
-              layout={layouts.find((l) => l.id === pages[activePage]?.layout_id) ?? null}
-              onRemoveElement={removeElement}
-            />
+          <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex flex-col items-center">
+              <PageCanvas
+                pages={pages}
+                layouts={layouts}
+                activePage={activePage}
+                onSelectPage={setActivePage}
+                onPageAction={(pageIndex, action) => {
+                  setActivePage(pageIndex);
+                  if (action === "photos") {
+                    setSidebarTab("photos");
+                    if (!sidebarOpen) setSidebarOpen(true);
+                  } else if (action === "layout") {
+                    setSidebarTab("layouts");
+                    if (!sidebarOpen) setSidebarOpen(true);
+                  }
+                }}
+                onRemoveElement={removeElement}
+                onAddPage={addPage}
+              />
+            </div>
           </div>
-
-          {/* Page Thumbnails */}
-          <PageThumbnails
-            pages={pages}
-            activePage={activePage}
-            onSelectPage={setActivePage}
-            onAddPage={addPage}
-            onDeletePage={deletePage}
-          />
         </div>
       </div>
     </div>

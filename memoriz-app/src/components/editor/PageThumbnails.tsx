@@ -34,14 +34,17 @@ export default function PageThumbnails({
   return (
     <div className="h-28 bg-white border-t border-gray-200 shrink-0 flex items-center px-4 gap-3 overflow-x-auto">
       {pages.map((page, index) => (
-        <button
+        <div
           key={page.id}
           onClick={() => onSelectPage(index)}
-          className={`relative group shrink-0 w-16 h-20 rounded-lg border-2 transition-all ${
+          className={`relative group shrink-0 w-16 h-20 rounded-lg border-2 transition-all cursor-pointer ${
             index === activePage
               ? "border-primary shadow-md shadow-primary/20 scale-105"
               : "border-gray-200 hover:border-gray-300"
           }`}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectPage(index); }}
         >
           {/* Mini page preview */}
           <div
@@ -69,7 +72,7 @@ export default function PageThumbnails({
               <Trash2 className="w-3 h-3" />
             </button>
           )}
-        </button>
+        </div>
       ))}
 
       {/* Add page button */}

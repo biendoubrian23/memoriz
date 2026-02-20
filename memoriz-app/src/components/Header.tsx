@@ -5,6 +5,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { Menu, X } from "lucide-react";
 
+/*
+ * Header PUBLIC (landing page) — toujours statique.
+ * Affiche TOUJOURS "Connexion" et "Créer mon souvenir".
+ * Aucun useAuth() ici → ne dépend jamais de l'état auth.
+ */
+
 /* ── Album sub-links ─────────────────────────────────── */
 const albumLinks = {
   populaires: [
@@ -76,6 +82,7 @@ export default function Header() {
               width={237}
               height={68}
               className="h-13 sm:h-17 w-auto"
+              style={{ width: 'auto', height: 'auto' }}
               priority
             />
           </Link>
@@ -232,6 +239,7 @@ export default function Header() {
                     width={280}
                     height={200}
                     className="w-full h-48 object-cover rounded-2xl"
+                    style={{ width: '100%', height: 'auto' }}
                   />
                   <p className="mt-3 text-sm font-semibold text-dark text-center hero-font-heading">
                     {albumLinks.imageLabel}
@@ -310,6 +318,7 @@ export default function Header() {
                     width={280}
                     height={200}
                     className="w-full h-48 object-cover rounded-2xl"
+                    style={{ width: '100%', height: 'auto' }}
                   />
                   <p className="mt-3 text-sm font-semibold text-dark text-center hero-font-heading">
                     {magazineLinks.imageLabel}

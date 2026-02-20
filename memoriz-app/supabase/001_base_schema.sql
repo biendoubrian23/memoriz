@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS public.project_pages (
   project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE NOT NULL,
   page_number INT NOT NULL,
   page_type TEXT DEFAULT 'content' CHECK (page_type IN ('cover', 'inner_cover', 'title', 'content', 'back_cover')),
-  layout_template TEXT DEFAULT '1-full',
+  layout_id TEXT DEFAULT '1-full',
   background_color TEXT DEFAULT '#FFFFFF',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),

@@ -345,9 +345,15 @@ function CreerWizard() {
 
       // Redirect to editor
       router.push(`/editeur/${project.id}`);
-    } catch (err) {
-      console.error("Error creating project:", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : JSON.stringify(err);
+      console.error("Error creating project:", msg, err);
+      
+      // If the error is a foreign key / auth issue, the session is stale
+      // → save config and show connect prompt so user can re-authenticate
+      localStorage.setItem("memoriz_pending_config", JSON.stringify(config));
       setCreatingProject(false);
+      setShowConnectPrompt(true);
     }
   }
 
@@ -358,15 +364,29 @@ function CreerWizard() {
     }));
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep((s) => s + 1);
     } else {
-      // All steps done — check if user is logged in
+      // All steps done — verify session is actually valid before creating
       if (user) {
-        createProjectAndRedirect(selections);
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          // Session valid → create project
+          createProjectAndRedirect(selections);
+        } else {
+          // Session expired/invalid → clear auth and show connect prompt
+          await supabase.auth.signOut();
+          localStorage.setItem(
+            "memoriz_pending_config",
+            JSON.stringify(selections)
+          );
+          setShowConnectPrompt(true);
+        }
       } else {
-        // Save to localStorage and show connect prompt
+        // Not logged in → show connect prompt
         localStorage.setItem(
           "memoriz_pending_config",
           JSON.stringify(selections)

@@ -37,6 +37,7 @@ export default function EditorHeader({ project, saving, onUpdateTitle, onPreview
           width={100}
           height={30}
           className="h-7 w-auto"
+          style={{ width: 'auto', height: 'auto' }}
         />
       </button>
 

@@ -1,5 +1,48 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth/AuthContext";
+
+/* ── 5 unique blob border-radius shapes (organic, large — ~85%+ image visible) ── */
+const blobStyles: React.CSSProperties[] = [
+  // 1 – soft asymmetric drop (Drag & Drop)
+  { borderRadius: "60% 40% 45% 55% / 50% 60% 40% 50%" },
+  // 2 – rounded wobble (Impression directe)
+  { borderRadius: "40% 60% 55% 45% / 60% 40% 55% 45%" },
+  // 3 – diagonal (Sans Canva)
+  { borderRadius: "20% 60% 20% 60% / 60% 20% 60% 20%" },
+  // 4 – organic pebble (Personnalisable)
+  { borderRadius: "30% 70% 55% 45% / 65% 35% 60% 40%" },
+  // 5 – elongated organic (Voyages)
+  { borderRadius: "50% 50% 40% 60% / 55% 45% 60% 40%" },
+];
+
+/* ── Background blob (slightly different + bigger) ── */
+const bgBlobStyles: React.CSSProperties[] = [
+  { borderRadius: "55% 45% 50% 50% / 45% 55% 45% 55%" },
+  { borderRadius: "45% 55% 50% 50% / 55% 45% 50% 50%" },
+  { borderRadius: "25% 55% 25% 55% / 55% 25% 55% 25%" },
+  { borderRadius: "50% 50% 45% 55% / 50% 50% 55% 45%" },
+  { borderRadius: "55% 45% 45% 55% / 50% 50% 45% 55%" },
+];
+
+/* ── Accent colors per feature ── */
+const accentColors = [
+  "bg-primary/15",
+  "bg-violet-300/30",
+  "bg-amber-300/30",
+  "bg-emerald-300/30",
+  "bg-rose-300/30",
+];
+
+const dotColors = [
+  "bg-primary/40",
+  "bg-violet-400/50",
+  "bg-amber-400/50",
+  "bg-emerald-400/50",
+  "bg-rose-400/50",
+];
 
 const features = [
   {
@@ -10,6 +53,15 @@ const features = [
       "Choisissez parmi nos dizaines de templates professionnels et glissez-déposez vos photos. Pas besoin de compétences en design — le résultat est garanti dès le premier essai.",
     highlights: ["Templates pro inclus", "Glisser-déposer intuitif", "Résultat immédiat"],
     cta: "Utiliser ce template",
+  },
+  {
+    image: "/images/section3/le3.jpeg",
+    badge: "Impression directe",
+    title: "Créez et imprimez en quelques clics. C'est aussi simple que ça",
+    description:
+      "Une fois votre création terminée, commandez l'impression en un clic. Recevez chez vous un livre de qualité premium, relié et prêt à offrir.",
+    highlights: ["Impression haute qualité", "Livraison à domicile", "Prêt à offrir"],
+    cta: "Créer mon album",
   },
   {
     image: "/images/section3/32.jpg",
@@ -30,15 +82,6 @@ const features = [
     cta: "Personnaliser le mien",
   },
   {
-    image: "/images/section3/34.png",
-    badge: "Impression directe",
-    title: "Créez et imprimez en quelques clics. C'est aussi simple que ça",
-    description:
-      "Une fois votre création terminée, commandez l'impression en un clic. Recevez chez vous un livre de qualité premium, relié et prêt à offrir.",
-    highlights: ["Impression haute qualité", "Livraison à domicile", "Prêt à offrir"],
-    cta: "Créer mon album",
-  },
-  {
     image: "/images/section3/35.jpeg",
     badge: "Voyages",
     title: "Vos aventures méritent mieux qu'un album photo classique",
@@ -50,6 +93,9 @@ const features = [
 ];
 
 export default function DragDropSection() {
+  const { user } = useAuth();
+  const ctaHref = user ? "/mes-projets" : "/creer";
+
   return (
     <section id="drag-drop" className="py-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -74,26 +120,42 @@ export default function DragDropSection() {
                 key={feature.title}
                 className={`flex flex-col ${isReversed ? "lg:flex-row-reverse" : "lg:flex-row"} items-center gap-8 lg:gap-14`}
               >
-                {/* Image with CTA overlay */}
+                {/* Image with blob shape */}
                 <div className="w-full lg:w-[45%]">
-                  <div className="group relative rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-shadow duration-300">
-                    <Image
-                      src={feature.image}
-                      alt={feature.title}
-                      width={520}
-                      height={360}
-                      className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105"
-                      sizes="(max-width: 1024px) 100vw, 45vw"
+                  <div className="relative flex items-center justify-center py-4">
+                    {/* Background blob (slightly larger, blurred) */}
+                    <div
+                      className={`absolute inset-2 ${accentColors[index]} blur-2xl`}
+                      style={bgBlobStyles[index]}
                     />
-                    {/* Overlay + CTA */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center">
-                      <Link
-                        href="/creer"
-                        className="opacity-0 group-hover:opacity-100 translate-y-3 group-hover:translate-y-0 transition-all duration-300 px-6 py-3 bg-white text-dark font-semibold text-sm rounded-full shadow-lg hover:bg-primary hover:text-white hero-font-body"
-                      >
-                        {feature.cta} →
-                      </Link>
+
+                    {/* Main blob image */}
+                    <div
+                      className="group relative overflow-hidden shadow-xl hover:shadow-2xl transition-shadow duration-500 w-full aspect-square"
+                      style={blobStyles[index]}
+                    >
+                      <Image
+                        src={feature.image}
+                        alt={feature.title}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        sizes="(max-width: 1024px) 100vw, 45vw"
+                      />
+                      {/* Overlay + CTA */}
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-all duration-300 flex items-center justify-center">
+                        <Link
+                          href={ctaHref}
+                          className="opacity-0 group-hover:opacity-100 translate-y-3 group-hover:translate-y-0 transition-all duration-300 px-6 py-3 bg-white text-dark font-semibold text-sm rounded-full shadow-lg hover:bg-primary hover:text-white hero-font-body"
+                        >
+                          {feature.cta} →
+                        </Link>
+                      </div>
                     </div>
+
+                    {/* Decorative dots */}
+                    <div className={`absolute ${isReversed ? "-left-2 top-8" : "-right-2 top-8"} w-5 h-5 rounded-full ${dotColors[index]}`} />
+                    <div className={`absolute ${isReversed ? "right-4 -bottom-1" : "left-4 -bottom-1"} w-3 h-3 rounded-full ${dotColors[index]}`} />
+                    <div className={`absolute ${isReversed ? "left-10 -bottom-2" : "right-10 -bottom-2"} w-2 h-2 rounded-full ${accentColors[index]}`} />
                   </div>
                 </div>
 

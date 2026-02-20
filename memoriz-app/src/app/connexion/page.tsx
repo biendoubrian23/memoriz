@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -11,8 +11,15 @@ export default function ConnexionPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
   const router = useRouter();
+
+  // Si déjà connecté → rediriger vers mes-projets
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace("/mes-projets");
+    }
+  }, [authLoading, user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +36,7 @@ export default function ConnexionPage() {
       if (pendingConfig) {
         router.push("/creer?step=connect-success");
       } else {
-        router.push("/");
+        router.push("/mes-projets");
       }
     }
   };
@@ -46,6 +53,7 @@ export default function ConnexionPage() {
               width={160}
               height={45}
               className="h-12 w-auto mx-auto mb-4"
+              style={{ width: 'auto', height: 'auto' }}
             />
             <h1 className="text-2xl font-bold text-dark">Bienvenue</h1>
             <p className="text-sm text-medium-gray mt-1">

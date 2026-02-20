@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 const slides = [
   {
@@ -48,6 +49,7 @@ const slides = [
 ];
 
 export default function HeroSection() {
+  const { user } = useAuth();
   const [current, setCurrent] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
@@ -104,7 +106,7 @@ export default function HeroSection() {
               className="mt-10 flex flex-wrap items-center gap-4 animate-fade-in-up hero-delay-2"
             >
               <Link
-                href={slide.ctaHref}
+                href={user ? "/mes-projets" : slide.ctaHref}
                 className="inline-flex items-center gap-2 px-8 py-4 bg-primary text-white font-semibold text-sm uppercase tracking-wider rounded-full hover:bg-primary-dark transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-[1.03] hero-font-body"
               >
                 {slide.cta}
