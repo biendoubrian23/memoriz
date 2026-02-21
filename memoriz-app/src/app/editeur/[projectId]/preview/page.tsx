@@ -18,6 +18,8 @@ import type {
   PageElement,
   GridCell,
 } from "@/lib/types/editor";
+import { isMagazineConfig } from "@/lib/types/editor";
+// Magazine layout templates now come from DB only
 
 /* ═══════════════════════════════════════════
    Types
@@ -110,15 +112,14 @@ export default function PreviewPage() {
       );
     }
     if (layoutsRes.data) {
-      setLayouts(
-        (layoutsRes.data as LayoutTemplate[]).map((l) => ({
-          ...l,
-          grid_config:
-            typeof l.grid_config === "string"
-              ? JSON.parse(l.grid_config)
-              : l.grid_config,
-        }))
-      );
+      const dbLayouts = (layoutsRes.data as LayoutTemplate[]).map((l) => ({
+        ...l,
+        grid_config:
+          typeof l.grid_config === "string"
+            ? JSON.parse(l.grid_config)
+            : l.grid_config,
+      }));
+      setLayouts(dbLayouts);
     }
     setLoading(false);
   }, [user, projectId, supabase]);
@@ -684,8 +685,86 @@ function PageContent({
   layouts: LayoutTemplate[];
 }) {
   const layout = layouts.find((l) => l.id === page.layout_id) ?? null;
-  const cells: GridCell[] = layout?.grid_config ?? [];
   const elements = page.elements ?? [];
+
+  // ── Magazine freeform layout: render read-only preview ──
+  if (layout && isMagazineConfig(layout.grid_config)) {
+    const bgColor = (page as ProjectPage & { background_color?: string }).background_color
+      ?? layout.grid_config.backgroundColor
+      ?? "#ffffff";
+    return (
+      <div className="absolute inset-0 overflow-hidden" style={{ backgroundColor: bgColor }}>
+        {elements
+          .sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0))
+          .map((el) => {
+            const styles = (el as PageElement & { styles?: Record<string, unknown> }).styles ?? {};
+            const opacity = typeof styles.opacity === "number" ? styles.opacity : 1;
+            return (
+              <div
+                key={el.id}
+                className="absolute"
+                style={{
+                  left: `${el.position_x}%`,
+                  top: `${el.position_y}%`,
+                  width: `${el.width}%`,
+                  height: `${el.height}%`,
+                  transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                  opacity,
+                  zIndex: el.z_index ?? 0,
+                }}
+              >
+                {el.element_type === "text" && (
+                  <div
+                    className="w-full h-full flex overflow-hidden"
+                    style={{
+                      fontFamily: (styles.fontFamily as string) ?? "sans-serif",
+                      fontWeight: (styles.fontWeight as string) ?? "400",
+                      fontStyle: (styles.fontStyle as string) ?? "normal",
+                      letterSpacing: styles.letterSpacing != null ? `${styles.letterSpacing}em` : undefined,
+                      lineHeight: styles.lineHeight != null ? String(styles.lineHeight) : undefined,
+                      textTransform: (styles.textTransform as "uppercase" | "lowercase" | "capitalize" | "none") ?? "none",
+                      textAlign: (styles.textAlign as "left" | "center" | "right") ?? "left",
+                      color: (styles.textColor as string) ?? "#000",
+                      fontSize: `${((styles.fontSize as number) ?? 3) * 3}%`,
+                      textShadow: styles.textShadow ? "1px 1px 3px rgba(0,0,0,0.4)" : undefined,
+                      alignItems: "center",
+                    }}
+                  >
+                    <span className="w-full" style={{ textAlign: (styles.textAlign as "left" | "center" | "right") ?? "left" }}>
+                      {el.content || ""}
+                    </span>
+                  </div>
+                )}
+                {el.element_type === "image" && el.content && (
+                  <div className="w-full h-full relative overflow-hidden" style={{ borderRadius: styles.borderRadius != null ? `${styles.borderRadius}%` : undefined }}>
+                    <Image
+                      src={el.content}
+                      alt=""
+                      fill
+                      className="pointer-events-none"
+                      style={{ objectFit: (styles.objectFit as "cover" | "contain" | "fill") ?? "cover" }}
+                      sizes="(max-width: 768px) 100vw, 600px"
+                    />
+                  </div>
+                )}
+                {el.element_type === "shape" && (
+                  <div
+                    className="w-full h-full"
+                    style={{
+                      backgroundColor: (styles.fillColor as string) ?? "transparent",
+                      border: styles.strokeWidth ? `${styles.strokeWidth}px solid ${(styles.strokeColor as string) ?? "#000"}` : undefined,
+                      borderRadius: (styles.shapeType as string) === "circle" ? "50%" : undefined,
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
+      </div>
+    );
+  }
+
+  const cells: GridCell[] = (layout && !isMagazineConfig(layout.grid_config)) ? layout.grid_config : [];
 
   if (cells.length === 0) {
     return (

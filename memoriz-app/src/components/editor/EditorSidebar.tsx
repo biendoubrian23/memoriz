@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { LayoutTemplate, UserPhoto, GridCell, ProjectOptions, SelectedOptions } from "@/lib/types/editor";
+import { isMagazineConfig } from "@/lib/types/editor";
+import type { MagazineFreeformConfig } from "@/lib/types/editor";
 
 type SidebarTab = "photos" | "layouts" | "text" | "templates" | "options" | "settings";
 
@@ -38,6 +40,8 @@ type Props = {
   productOptions?: ProjectOptions;
   selectedOptions?: SelectedOptions;
   onChangeOption?: (key: keyof SelectedOptions, id: string) => void;
+  /** Super admin: callback to open the template editor modal for a given theme */
+  onCreateTemplate?: (themeId: string) => void;
 };
 
 const tabs: { key: SidebarTab; label: string; icon: React.ReactNode }[] = [
@@ -63,6 +67,7 @@ export default function EditorSidebar({
   productOptions,
   selectedOptions,
   onChangeOption,
+  onCreateTemplate,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -319,6 +324,7 @@ export default function EditorSidebar({
                 layouts={layouts}
                 currentLayoutId={currentLayoutId}
                 onSelectLayout={onSelectLayout}
+                onCreateTemplate={onCreateTemplate}
               />
             )}
 
@@ -435,7 +441,7 @@ export default function EditorSidebar({
 
 /* ── User info + logout at bottom of icon bar ── */
 function UserBottomSection() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, isSuperAdmin } = useAuth();
   const [showPopup, setShowPopup] = useState(false);
 
   if (!user) return null;
@@ -452,8 +458,10 @@ function UserBottomSection() {
     <div className="relative">
       <button
         onClick={() => setShowPopup(!showPopup)}
-        className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold hover:bg-primary-dark transition-colors mb-2"
-        title={displayName}
+        className={`w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold hover:bg-primary-dark transition-colors mb-2 ${
+          isSuperAdmin ? "ring-2 ring-purple-500 ring-offset-1" : ""
+        }`}
+        title={`${displayName}${isSuperAdmin ? " (Super Admin)" : ""}`}
       >
         {initials}
       </button>
@@ -469,7 +477,14 @@ function UserBottomSection() {
                   {initials}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-dark truncate">{displayName}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-semibold text-dark truncate">{displayName}</p>
+                    {isSuperAdmin && (
+                      <span className="shrink-0 text-[9px] font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full leading-none">
+                        ADMIN
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-medium-gray truncate">{user.email}</p>
                 </div>
               </div>
@@ -616,7 +631,9 @@ function SidebarTemplateCard({
       >
         {/* Mini preview */}
         <div className="w-full h-full relative bg-white rounded overflow-hidden">
-          {layout.grid_config.map((cell: GridCell, i: number) => (
+          {isMagazineConfig(layout.grid_config) ? (
+            <FreeformMiniPreview config={layout.grid_config} />
+          ) : layout.grid_config.map((cell: GridCell, i: number) => (
             <div
               key={i}
               className={`absolute rounded-sm ${
@@ -674,7 +691,9 @@ function SidebarTemplateCard({
         >
           <div className="w-56 bg-white rounded-xl shadow-2xl border border-gray-200 p-3">
             <div className="w-full aspect-[3/4] relative bg-gray-50 rounded-lg overflow-hidden mb-2">
-              {layout.grid_config.map((cell: GridCell, i: number) => (
+              {isMagazineConfig(layout.grid_config) ? (
+                <FreeformMiniPreview config={layout.grid_config} />
+              ) : layout.grid_config.map((cell: GridCell, i: number) => (
                 <div
                   key={i}
                   className={`absolute rounded-sm ${
@@ -710,12 +729,69 @@ function SidebarTemplateCard({
             </p>
             <p className="text-[10px] text-gray-400 text-center">
               {layout.photo_count} photo{layout.photo_count > 1 ? "s" : ""}
-              {layout.grid_config.some((c) => c.type === "text") && " + texte"}
+              {!isMagazineConfig(layout.grid_config) && layout.grid_config.some((c) => c.type === "text") && " + texte"}
             </p>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+/* ═════════════════════════════════════════════
+   FreeformMiniPreview — renders a scaled-down
+   version of freeform template elements
+   ═════════════════════════════════════════════ */
+function FreeformMiniPreview({ config }: { config: MagazineFreeformConfig }) {
+  return (
+    <div
+      className="w-full h-full relative overflow-hidden rounded-sm"
+      style={{ background: config.backgroundGradient || config.backgroundColor || "#ffffff" }}
+    >
+      {config.elements.map((el, i) => {
+        const base: React.CSSProperties = {
+          position: "absolute",
+          left: `${el.x}%`,
+          top: `${el.y}%`,
+          width: `${el.width}%`,
+          height: `${el.height}%`,
+          transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+          opacity: Math.min((el.opacity ?? 1), 0.92),
+        };
+
+        if (el.type === "image") {
+          return <div key={i} style={{ ...base, backgroundColor: "#c4b5a4", borderRadius: "1px" }} />;
+        }
+        if (el.type === "shape") {
+          return (
+            <div key={i} style={{
+              ...base,
+              backgroundColor: el.fillColor || "transparent",
+              border: el.strokeColor ? `1px solid ${el.strokeColor}` : "none",
+              borderRadius: el.shapeType === "circle" ? "50%" : "0",
+            }} />
+          );
+        }
+        if (el.type === "text" && el.fontSize && el.fontSize > 3) {
+          // Only render large/important text to avoid clutter
+          return (
+            <div key={i} style={{ ...base, overflow: "hidden" }}>
+              <div style={{
+                width: el.content && el.content.length < 12 ? "85%" : "65%",
+                height: "3px",
+                maxHeight: "40%",
+                backgroundColor: el.textColor || "#333",
+                borderRadius: "1px",
+                opacity: 0.6,
+                margin: el.textAlign === "center" ? "0 auto"
+                  : el.textAlign === "right" ? "0 0 0 auto" : "0",
+              }} />
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
   );
 }
 
@@ -779,12 +855,15 @@ function TemplatesAccordion({
   layouts,
   currentLayoutId,
   onSelectLayout,
+  onCreateTemplate,
 }: {
   layouts: LayoutTemplate[];
   currentLayoutId: string | null | undefined;
   onSelectLayout: (layoutId: string) => void;
+  onCreateTemplate?: (themeId: string) => void;
 }) {
   const [openSection, setOpenSection] = useState<string | null>("magazine");
+  const { isSuperAdmin } = useAuth();
 
   const toggle = (key: string) => {
     setOpenSection((prev) => (prev === key ? null : key));
@@ -851,6 +930,18 @@ function TemplatesAccordion({
               }`}
             >
               <div className="px-3 pb-3 pt-1">
+                {/* Super admin — create template button */}
+                {isSuperAdmin && onCreateTemplate && (
+                  <button
+                    onClick={() => onCreateTemplate(theme.key)}
+                    className="flex items-center justify-center gap-2 w-full mb-2 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors hover:opacity-90"
+                    style={{ backgroundColor: theme.color }}
+                  >
+                    <span className="text-sm">＋</span>
+                    Créer un template
+                  </button>
+                )}
+
                 {count === 0 ? (
                   <div className="text-center py-6">
                     <span className="text-2xl block mb-2">{theme.emoji}</span>

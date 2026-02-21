@@ -11,6 +11,7 @@ type Profile = {
   last_name: string;
   email: string | null;
   avatar_url: string | null;
+  role: string;
 };
 
 type AuthContextType = {
@@ -19,6 +20,7 @@ type AuthContextType = {
   session: Session | null;
   loading: boolean;
   authError: boolean;
+  isSuperAdmin: boolean;
   signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -86,8 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.auth.getSession().then(({ data: { session: s } }) => {
           if (mounted.current) setSession(s);
         });
-        // Profile en non-bloquant (ne bloque pas le chargement)
-        fetchProfile(currentUser.id);
+        // Profile MUST be loaded before loading=false so isSuperAdmin is correct
+        await fetchProfile(currentUser.id);
       } else {
         setUser(null);
         setSession(null);
@@ -208,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         loading,
         authError,
+        isSuperAdmin: profile?.role === "super_admin",
         signUp,
         signIn,
         signOut: signOutFn,

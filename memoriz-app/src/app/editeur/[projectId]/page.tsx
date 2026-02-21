@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -18,11 +18,16 @@ import EditorSidebar from "@/components/editor/EditorSidebar";
 import PageCanvas from "@/components/editor/PageCanvas";
 import EditorHeader from "@/components/editor/EditorHeader";
 import DesignerModal from "@/components/editor/DesignerModal";
-import type { GridCell } from "@/lib/types/editor";
+import MagazineEditor from "@/components/editor/magazine/MagazineEditor";
+import type { GridCell, FreeformElement, MagazineFreeformConfig } from "@/lib/types/editor";
+import { isMagazineConfig, pageElementToFreeform, freeformToDbRecord } from "@/lib/types/editor";
+import { getMagazineTemplate } from "@/lib/magazine-templates";
+import TemplateEditorModal from "@/components/template-editor/TemplateEditorModal";
 
 export default function EditorPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const { user, loading: authLoading } = useAuth();
 
@@ -32,7 +37,20 @@ export default function EditorPage() {
   const [photos, setPhotos] = useState<UserPhoto[]>([]);
   const [activePage, setActivePage] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<"photos" | "layouts" | "text" | "templates" | "options" | "settings">("photos");
+  type MainTab = "photos" | "layouts" | "text" | "templates" | "options" | "settings";
+  const VALID_MAIN_TABS: MainTab[] = ["photos", "layouts", "text", "templates", "options", "settings"];
+  const [sidebarTab, setSidebarTabRaw] = useState<MainTab>(() => {
+    const urlTab = searchParams.get("tab") as MainTab | null;
+    return urlTab && VALID_MAIN_TABS.includes(urlTab) ? urlTab : "photos";
+  });
+
+  // Wrapper that also persists the tab in the URL
+  const setSidebarTab = useCallback((tab: MainTab) => {
+    setSidebarTabRaw(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState({}, "", url.toString());
+  }, []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -50,6 +68,13 @@ export default function EditorPage() {
   const [formatResetPopup, setFormatResetPopup] = useState<{ newFormatId: string } | null>(null);
   // Designer modal
   const [designerPageIndex, setDesignerPageIndex] = useState<number | null>(null);
+  // Magazine editor modal
+  const [magazinePageIndex, setMagazinePageIndex] = useState<number | null>(null);
+  // Template editor modal (super_admin creates templates)
+  // Persisted in URL so refresh keeps the modal open
+  const [templateEditorTheme, setTemplateEditorTheme] = useState<string | null>(
+    () => searchParams.get("templateEditor")
+  );
 
   // Stable client — ne change JAMAIS entre les renders
   const supabase = useMemo(() => createClient(), []);
@@ -168,15 +193,15 @@ export default function EditorPage() {
       setPages(pagesWithElements);
     }
     if (layoutsRes.data) {
-      setLayouts(
-        (layoutsRes.data as LayoutTemplate[]).map((l) => ({
-          ...l,
-          grid_config:
-            typeof l.grid_config === "string"
-              ? JSON.parse(l.grid_config)
-              : l.grid_config,
-        }))
-      );
+      const dbLayouts = (layoutsRes.data as LayoutTemplate[]).map((l) => ({
+        ...l,
+        grid_config:
+          typeof l.grid_config === "string"
+            ? JSON.parse(l.grid_config)
+            : l.grid_config,
+      }));
+      // Only use DB layouts (dynamic templates removed — admin creates them)
+      setLayouts(dbLayouts);
     }
     if (photosRes.data) {
       const photosWithUrls = (photosRes.data as UserPhoto[]).map((p) => ({
@@ -291,6 +316,13 @@ export default function EditorPage() {
 
   // Change layout of current page
   const changeLayout = async (layoutId: string) => {
+    // Check if this is a magazine template
+    const magTemplate = getMagazineTemplate(layoutId);
+    if (magTemplate) {
+      await applyMagazineTemplate(layoutId);
+      return;
+    }
+
     const page = pages[activePage];
     if (!page) return;
 
@@ -302,6 +334,90 @@ export default function EditorPage() {
 
     await loadProject();
     setSaving(false);
+  };
+
+  // Apply a magazine template → create freeform elements
+  const applyMagazineTemplate = async (templateId: string) => {
+    const page = pages[activePage];
+    if (!page) return;
+
+    const template = getMagazineTemplate(templateId);
+    if (!template) return;
+
+    setSaving(true);
+
+    // Delete existing elements on this page
+    if (page.elements?.length) {
+      await supabase.from("page_elements").delete().eq("page_id", page.id);
+    }
+
+    // Update layout_id to the magazine template id
+    await supabase
+      .from("project_pages")
+      .update({ layout_id: templateId, background_color: template.config.backgroundColor ?? "#ffffff" })
+      .eq("id", page.id);
+
+    // Create all elements from template
+    const elementsToInsert = template.config.elements.map((el, i) => ({
+      page_id: page.id,
+      element_type: el.type,
+      content: el.type === "text" ? (el.content ?? "") : (el.imageUrl ?? ""),
+      position_x: el.x,
+      position_y: el.y,
+      width: el.width,
+      height: el.height,
+      rotation: el.rotation,
+      z_index: el.zIndex,
+      styles: {
+        opacity: el.opacity,
+        fontFamily: el.fontFamily,
+        fontSize: el.fontSize,
+        fontWeight: el.fontWeight,
+        fontStyle: el.fontStyle,
+        letterSpacing: el.letterSpacing,
+        lineHeight: el.lineHeight,
+        textTransform: el.textTransform,
+        textAlign: el.textAlign,
+        textColor: el.textColor,
+        textShadow: el.textShadow,
+        objectFit: el.objectFit,
+        objectPosition: el.objectPosition,
+        borderRadius: el.borderRadius,
+        clipPath: el.clipPath,
+        shapeType: el.shapeType,
+        fillColor: el.fillColor,
+        strokeColor: el.strokeColor,
+        strokeWidth: el.strokeWidth,
+        borderStyle: el.borderStyle,
+        locked: el.locked,
+      },
+    }));
+
+    await supabase.from("page_elements").insert(elementsToInsert);
+    await loadProject();
+    setSaving(false);
+
+    // Auto-open magazine editor
+    setMagazinePageIndex(activePage);
+  };
+
+  // Save magazine editor changes
+  const saveMagazineElements = async (elements: FreeformElement[]) => {
+    const pageIdx = magazinePageIndex;
+    if (pageIdx === null) return;
+    const page = pages[pageIdx];
+    if (!page) return;
+
+    // Delete all existing elements
+    await supabase.from("page_elements").delete().eq("page_id", page.id);
+
+    // Insert updated elements
+    if (elements.length > 0) {
+      const records = elements.map((el) => freeformToDbRecord(el, page.id));
+      await supabase.from("page_elements").insert(records);
+    }
+
+    await loadProject();
   };
 
   // Upload photo
@@ -355,6 +471,8 @@ export default function EditorPage() {
 
     const layout = layouts.find((l) => l.id === page.layout_id);
     if (!layout) return;
+    // Magazine freeform layouts don't support cell-based insertion
+    if (isMagazineConfig(layout.grid_config)) return;
 
     const cell = layout.grid_config[cellIndex];
     if (!cell) return;
@@ -502,12 +620,21 @@ export default function EditorPage() {
           productOptions={productOptions ?? undefined}
           selectedOptions={selectedOptions}
           onChangeOption={handleChangeOption}
+          onCreateTemplate={(themeId) => {
+            setTemplateEditorTheme(themeId);
+            // Persist in URL so refresh keeps the modal open
+            const url = new URL(window.location.href);
+            url.searchParams.set("templateEditor", themeId);
+            window.history.replaceState({}, "", url.toString());
+          }}
           onDragPhoto={(photo) => {
             // Find first empty IMAGE cell (skip text cells)
             const page = pages[activePage];
             if (!page) return;
             const layout = layouts.find((l) => l.id === page.layout_id);
             if (!layout) return;
+            // Magazine freeform layouts don't use grid cells
+            if (isMagazineConfig(layout.grid_config)) return;
             const emptyCellIdx = layout.grid_config.findIndex((cell, idx) => {
               if (cell.type === "text") return false;
               const hasElement = page.elements?.some(
@@ -544,7 +671,13 @@ export default function EditorPage() {
                     setSidebarTab("layouts");
                     if (!sidebarOpen) setSidebarOpen(true);
                   } else if (action === "designer") {
-                    setDesignerPageIndex(pageIndex);
+                    // Check if page uses a magazine template → open MagazineEditor
+                    const pg = pages[pageIndex];
+                    if (pg?.layout_id && getMagazineTemplate(pg.layout_id)) {
+                      setMagazinePageIndex(pageIndex);
+                    } else {
+                      setDesignerPageIndex(pageIndex);
+                    }
                   }
                 }}
                 onRemoveElement={removeElement}
@@ -553,6 +686,8 @@ export default function EditorPage() {
                   if (!page) return;
                   const layout = layouts.find((l) => l.id === page.layout_id);
                   if (!layout) return;
+                  // Magazine freeform layouts don't support grid drops
+                  if (isMagazineConfig(layout.grid_config)) return;
                   const cell = layout.grid_config[cellIndex];
                   if (!cell || cell.type === "text") return;
 
@@ -650,6 +785,30 @@ export default function EditorPage() {
         />
       )}
 
+      {/* Magazine Editor Modal */}
+      {magazinePageIndex !== null && pages[magazinePageIndex] && (() => {
+        const magPage = pages[magazinePageIndex];
+        const magTemplate = magPage.layout_id ? getMagazineTemplate(magPage.layout_id) : null;
+        const bgColor = (magPage as ProjectPage & { background_color?: string }).background_color
+          ?? magTemplate?.config.backgroundColor
+          ?? "#ffffff";
+        const bgGradient = magTemplate?.config.backgroundGradient;
+        const freeformElements: FreeformElement[] = (magPage.elements ?? []).map(pageElementToFreeform);
+        return (
+          <MagazineEditor
+            elements={freeformElements}
+            photos={photos}
+            backgroundColor={bgColor}
+            backgroundGradient={bgGradient}
+            canvasAspect={formatDimensions ? formatDimensions.width_cm / formatDimensions.height_cm : 210 / 297}
+            onSave={async (elements) => {
+              await saveMagazineElements(elements);
+            }}
+            onClose={() => setMagazinePageIndex(null)}
+          />
+        );
+      })()}
+
       {/* Format Reset Confirmation Modal */}
       {formatResetPopup && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -679,6 +838,23 @@ export default function EditorPage() {
             </div>
           </div>
         </div>
+      )}
+      {/* Template Editor Modal (super_admin) */}
+      {templateEditorTheme && (
+        <TemplateEditorModal
+          themeId={templateEditorTheme}
+          onClose={() => {
+            setTemplateEditorTheme(null);
+            // Remove URL param without triggering navigation
+            const url = new URL(window.location.href);
+            url.searchParams.delete("templateEditor");
+            window.history.replaceState({}, "", url.toString());
+          }}
+          onTemplateSaved={() => {
+            // Refresh layouts list to show the new template
+            loadProject();
+          }}
+        />
       )}
     </div>
   );
