@@ -41,6 +41,11 @@ type Props = {
   saving: boolean;
   templateName: string;
   onNameChange: (name: string) => void;
+  /** Optional publish handler (super_admin template mode) */
+  onPublish?: () => void;
+  publishing?: boolean;
+  /** Label for the save button (default "Sauvegarder") */
+  saveLabel?: string;
 };
 
 export default function EditorToolbar({
@@ -56,6 +61,9 @@ export default function EditorToolbar({
   saving,
   templateName,
   onNameChange,
+  onPublish,
+  publishing,
+  saveLabel,
 }: Props) {
   const [editingName, setEditingName] = useState(false);
 
@@ -154,7 +162,7 @@ export default function EditorToolbar({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Preview & Save */}
+      {/* Preview & Save & Publish */}
       <ToolButton icon={Eye} label="Aperçu" onClick={onPreview} />
       <button
         onClick={onSave}
@@ -166,8 +174,24 @@ export default function EditorToolbar({
         ) : (
           <Save className="w-4 h-4" />
         )}
-        {saving ? "Sauvegarde..." : "Sauvegarder"}
+        {saving ? "Sauvegarde..." : (saveLabel ?? "Sauvegarder")}
       </button>
+      {onPublish && (
+        <button
+          onClick={onPublish}
+          disabled={publishing}
+          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+        >
+          {publishing ? (
+            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+          )}
+          {publishing ? "Publication..." : "Publier"}
+        </button>
+      )}
       <ToolButton
         icon={Download}
         label="Exporter PNG"

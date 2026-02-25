@@ -20,7 +20,7 @@ import EditorHeader from "@/components/editor/EditorHeader";
 import DesignerModal from "@/components/editor/DesignerModal";
 import MagazineEditor from "@/components/editor/magazine/MagazineEditor";
 import type { GridCell, FreeformElement, MagazineFreeformConfig } from "@/lib/types/editor";
-import { isMagazineConfig, pageElementToFreeform, freeformToDbRecord } from "@/lib/types/editor";
+import { isFreeformConfig, isFabricConfig, pageElementToFreeform, freeformToDbRecord } from "@/lib/types/editor";
 import { getMagazineTemplate } from "@/lib/magazine-templates";
 import TemplateEditorModal from "@/components/template-editor/TemplateEditorModal";
 
@@ -29,7 +29,7 @@ export default function EditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, isSuperAdmin } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
   const [pages, setPages] = useState<ProjectPage[]>([]);
@@ -68,8 +68,48 @@ export default function EditorPage() {
   const [formatResetPopup, setFormatResetPopup] = useState<{ newFormatId: string } | null>(null);
   // Designer modal
   const [designerPageIndex, setDesignerPageIndex] = useState<number | null>(null);
+  // Fabric page editor (replaces DesignerModal for non-magazine pages)
+  const [fabricEditorPageIndexRaw, setFabricEditorPageIndexRaw] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search).get("editPage");
+    const parsed = p ? parseInt(p, 10) : null;
+    return parsed !== null && !isNaN(parsed) ? parsed : null;
+  });
+
+  const fabricEditorPageIndex = fabricEditorPageIndexRaw;
+
+  const setFabricEditorPageIndex = useCallback((idx: number | null) => {
+    setFabricEditorPageIndexRaw(idx);
+    const url = new URL(window.location.href);
+    if (idx !== null) {
+      url.searchParams.set("editPage", idx.toString());
+    } else {
+      url.searchParams.delete("editPage");
+    }
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
   // Magazine editor modal
-  const [magazinePageIndex, setMagazinePageIndex] = useState<number | null>(null);
+  const [magazinePageIndexRaw, setMagazinePageIndexRaw] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search).get("editMag");
+    const parsed = p ? parseInt(p, 10) : null;
+    return parsed !== null && !isNaN(parsed) ? parsed : null;
+  });
+
+  const magazinePageIndex = magazinePageIndexRaw;
+
+  const setMagazinePageIndex = useCallback((idx: number | null) => {
+    setMagazinePageIndexRaw(idx);
+    const url = new URL(window.location.href);
+    if (idx !== null) {
+      url.searchParams.set("editMag", idx.toString());
+    } else {
+      url.searchParams.delete("editMag");
+    }
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
   // Template editor modal (super_admin creates templates)
   // Persisted in URL so refresh keeps the modal open
   const [templateEditorTheme, setTemplateEditorTheme] = useState<string | null>(
@@ -107,146 +147,146 @@ export default function EditorPage() {
         supabase.from("printing_types").select("*").order("display_order"),
       ]);
 
-    if (projectRes.data) setProject(projectRes.data as Project);
-    if (pagesRes.data) {
-      let pagesData = pagesRes.data as (ProjectPage & { page_elements: PageElement[] })[];
+      if (projectRes.data) setProject(projectRes.data as Project);
+      if (pagesRes.data) {
+        let pagesData = pagesRes.data as (ProjectPage & { page_elements: PageElement[] })[];
 
-      // ── Ensure the project always has: cover + 26 content pages + back_cover ──
-      if (projectRes.data) {
-        const hasCover = pagesData.some((p) => p.page_type === "cover");
-        const hasBackCover = pagesData.some((p) => p.page_type === "back_cover");
-        const backCoverRow = pagesData.find((p) => p.page_type === "back_cover");
-        const contentPages = pagesData.filter((p) => p.page_type === "content");
-        const missingContent = 26 - contentPages.length;
+        // ── Ensure the project always has: cover + 26 content pages + back_cover ──
+        if (projectRes.data) {
+          const hasCover = pagesData.some((p) => p.page_type === "cover");
+          const hasBackCover = pagesData.some((p) => p.page_type === "back_cover");
+          const backCoverRow = pagesData.find((p) => p.page_type === "back_cover");
+          const contentPages = pagesData.filter((p) => p.page_type === "content");
+          const missingContent = 26 - contentPages.length;
 
-        if (!hasCover || missingContent > 0 || !hasBackCover) {
-          const toInsert: Record<string, unknown>[] = [];
+          if (!hasCover || missingContent > 0 || !hasBackCover) {
+            const toInsert: Record<string, unknown>[] = [];
 
-          // Add cover if missing
-          if (!hasCover) {
-            toInsert.push({ project_id: projectId, page_number: 0, page_type: "cover", layout_id: "cover-full", background_color: "#FFFFFF" });
-          }
+            // Add cover if missing
+            if (!hasCover) {
+              toInsert.push({ project_id: projectId, page_number: 0, page_type: "cover", layout_id: "cover-full", background_color: "#FFFFFF" });
+            }
 
-          if (missingContent > 0) {
-            // Move back_cover out of the way FIRST to avoid unique conflict
+            if (missingContent > 0) {
+              // Move back_cover out of the way FIRST to avoid unique conflict
+              if (backCoverRow) {
+                await supabase
+                  .from("project_pages")
+                  .update({ page_number: 999 })
+                  .eq("id", backCoverRow.id);
+              }
+
+              // Find which page_numbers 1-26 are already taken
+              const usedNumbers = new Set(contentPages.map((p) => p.page_number));
+              let added = 0;
+              for (let n = 1; n <= 26 && added < missingContent; n++) {
+                if (!usedNumbers.has(n)) {
+                  toInsert.push({
+                    project_id: projectId,
+                    page_number: n,
+                    page_type: "content",
+                    layout_id: "1-full",
+                    background_color: "#FFFFFF",
+                  });
+                  added++;
+                }
+              }
+            }
+
+            // Insert missing pages
+            if (toInsert.length > 0) {
+              await supabase.from("project_pages").insert(toInsert);
+            }
+
+            // Ensure back_cover is at page_number 27
             if (backCoverRow) {
               await supabase
                 .from("project_pages")
-                .update({ page_number: 999 })
+                .update({ page_number: 27 })
                 .eq("id", backCoverRow.id);
+            } else if (!hasBackCover) {
+              await supabase.from("project_pages").insert({
+                project_id: projectId,
+                page_number: 27,
+                page_type: "back_cover",
+                layout_id: "cover-centered",
+                background_color: "#FFFFFF",
+              });
             }
 
-            // Find which page_numbers 1-26 are already taken
-            const usedNumbers = new Set(contentPages.map((p) => p.page_number));
-            let added = 0;
-            for (let n = 1; n <= 26 && added < missingContent; n++) {
-              if (!usedNumbers.has(n)) {
-                toInsert.push({
-                  project_id: projectId,
-                  page_number: n,
-                  page_type: "content",
-                  layout_id: "1-full",
-                  background_color: "#FFFFFF",
-                });
-                added++;
-              }
-            }
-          }
-
-          // Insert missing pages
-          if (toInsert.length > 0) {
-            await supabase.from("project_pages").insert(toInsert);
-          }
-
-          // Ensure back_cover is at page_number 27
-          if (backCoverRow) {
-            await supabase
+            // Reload pages after changes
+            const { data: reloaded } = await supabase
               .from("project_pages")
-              .update({ page_number: 27 })
-              .eq("id", backCoverRow.id);
-          } else if (!hasBackCover) {
-            await supabase.from("project_pages").insert({
-              project_id: projectId,
-              page_number: 27,
-              page_type: "back_cover",
-              layout_id: "cover-centered",
-              background_color: "#FFFFFF",
-            });
-          }
-
-          // Reload pages after changes
-          const { data: reloaded } = await supabase
-            .from("project_pages")
-            .select("*, page_elements(*)")
-            .eq("project_id", projectId)
-            .order("page_number");
-          if (reloaded) {
-            pagesData = reloaded as (ProjectPage & { page_elements: PageElement[] })[];
+              .select("*, page_elements(*)")
+              .eq("project_id", projectId)
+              .order("page_number");
+            if (reloaded) {
+              pagesData = reloaded as (ProjectPage & { page_elements: PageElement[] })[];
+            }
           }
         }
+
+        const pagesWithElements = pagesData.map((p) => ({
+          ...p,
+          elements: p.page_elements ?? [],
+        }));
+        setPages(pagesWithElements);
+      }
+      if (layoutsRes.data) {
+        const dbLayouts = (layoutsRes.data as LayoutTemplate[]).map((l) => ({
+          ...l,
+          grid_config:
+            typeof l.grid_config === "string"
+              ? JSON.parse(l.grid_config)
+              : l.grid_config,
+        }));
+        // Non-super_admin users only see published templates
+        setLayouts(dbLayouts);
+      }
+      if (photosRes.data) {
+        const photosWithUrls = (photosRes.data as UserPhoto[]).map((p) => ({
+          ...p,
+          publicUrl: supabase.storage
+            .from("user-photos")
+            .getPublicUrl(p.file_path).data.publicUrl,
+        }));
+        setPhotos(photosWithUrls);
       }
 
-      const pagesWithElements = pagesData.map((p) => ({
-        ...p,
-        elements: p.page_elements ?? [],
-      }));
-      setPages(pagesWithElements);
-    }
-    if (layoutsRes.data) {
-      const dbLayouts = (layoutsRes.data as LayoutTemplate[]).map((l) => ({
-        ...l,
-        grid_config:
-          typeof l.grid_config === "string"
-            ? JSON.parse(l.grid_config)
-            : l.grid_config,
-      }));
-      // Only use DB layouts (dynamic templates removed — admin creates them)
-      setLayouts(dbLayouts);
-    }
-    if (photosRes.data) {
-      const photosWithUrls = (photosRes.data as UserPhoto[]).map((p) => ({
-        ...p,
-        publicUrl: supabase.storage
-          .from("user-photos")
-          .getPublicUrl(p.file_path).data.publicUrl,
-      }));
-      setPhotos(photosWithUrls);
-    }
-
-    // ── Product options ──
-    const toOption = (row: Record<string, unknown>): ProductOption => ({
-      id: row.id as string,
-      name: row.name as string,
-      slug: row.slug as string,
-      description: (row.description as string) ?? null,
-      image_url: (row.image_url as string) ?? null,
-      display_order: (row.display_order as number) ?? 0,
-      width_cm: row.width_cm as number | undefined,
-      height_cm: row.height_cm as number | undefined,
-      subtitle:
-        row.width_cm && row.height_cm
-          ? `${row.width_cm} × ${row.height_cm} cm`
-          : undefined,
-    });
-
-    setProductOptions({
-      bindings: (bindingsRes.data ?? []).map(toOption),
-      formats: (formatsRes.data ?? []).map(toOption),
-      papers: (papersRes.data ?? []).map(toOption),
-      laminations: (laminationsRes.data ?? []).map(toOption),
-      printings: (printingsRes.data ?? []).map(toOption),
-    });
-
-    if (projectRes.data) {
-      const p = projectRes.data as Project;
-      setSelectedOptions({
-        binding_type_id: p.binding_type_id,
-        format_id: p.format_id,
-        paper_type_id: p.paper_type_id,
-        lamination_type_id: p.lamination_type_id,
-        printing_type_id: p.printing_type_id,
+      // ── Product options ──
+      const toOption = (row: Record<string, unknown>): ProductOption => ({
+        id: row.id as string,
+        name: row.name as string,
+        slug: row.slug as string,
+        description: (row.description as string) ?? null,
+        image_url: (row.image_url as string) ?? null,
+        display_order: (row.display_order as number) ?? 0,
+        width_cm: row.width_cm as number | undefined,
+        height_cm: row.height_cm as number | undefined,
+        subtitle:
+          row.width_cm && row.height_cm
+            ? `${row.width_cm} × ${row.height_cm} cm`
+            : undefined,
       });
-    }
+
+      setProductOptions({
+        bindings: (bindingsRes.data ?? []).map(toOption),
+        formats: (formatsRes.data ?? []).map(toOption),
+        papers: (papersRes.data ?? []).map(toOption),
+        laminations: (laminationsRes.data ?? []).map(toOption),
+        printings: (printingsRes.data ?? []).map(toOption),
+      });
+
+      if (projectRes.data) {
+        const p = projectRes.data as Project;
+        setSelectedOptions({
+          binding_type_id: p.binding_type_id,
+          format_id: p.format_id,
+          paper_type_id: p.paper_type_id,
+          lamination_type_id: p.lamination_type_id,
+          printing_type_id: p.printing_type_id,
+        });
+      }
     } catch (err) {
       console.error("[loadProject] erreur:", err);
     } finally {
@@ -314,8 +354,9 @@ export default function EditorPage() {
     if (activePage >= pages.length - 1) setActivePage(Math.max(0, pages.length - 2));
   };
 
-  // Change layout of current page
-  const changeLayout = async (layoutId: string) => {
+  // Change layout of current page (optional targetPageIndex avoids stale-state
+  // when called right after setActivePage which hasn't flushed yet)
+  const changeLayout = async (layoutId: string, targetPageIndex?: number) => {
     // Check if this is a magazine template
     const magTemplate = getMagazineTemplate(layoutId);
     if (magTemplate) {
@@ -323,14 +364,41 @@ export default function EditorPage() {
       return;
     }
 
-    const page = pages[activePage];
+    const page = pages[targetPageIndex ?? activePage];
     if (!page) return;
 
     setSaving(true);
-    await supabase
-      .from("project_pages")
-      .update({ layout_id: layoutId })
-      .eq("id", page.id);
+    // Try updating layout_id + clearing per-page fabric_json & thumbnail
+    let updateError = false;
+    try {
+      const { error } = await supabase
+        .from("project_pages")
+        .update({ layout_id: layoutId, fabric_json: null, fabric_thumbnail: null })
+        .eq("id", page.id);
+      if (error) updateError = true;
+    } catch { updateError = true; }
+
+    // Fallback: if fabric_thumbnail column doesn't exist yet
+    if (updateError) {
+      try {
+        const { error } = await supabase
+          .from("project_pages")
+          .update({ layout_id: layoutId, fabric_json: null })
+          .eq("id", page.id);
+        // Final fallback: just layout_id
+        if (error) {
+          await supabase
+            .from("project_pages")
+            .update({ layout_id: layoutId })
+            .eq("id", page.id);
+        }
+      } catch {
+        await supabase
+          .from("project_pages")
+          .update({ layout_id: layoutId })
+          .eq("id", page.id);
+      }
+    }
 
     await loadProject();
     setSaving(false);
@@ -471,8 +539,8 @@ export default function EditorPage() {
 
     const layout = layouts.find((l) => l.id === page.layout_id);
     if (!layout) return;
-    // Magazine freeform layouts don't support cell-based insertion
-    if (isMagazineConfig(layout.grid_config)) return;
+    // Freeform layouts don't support cell-based insertion
+    if (isFreeformConfig(layout.grid_config)) return;
 
     const cell = layout.grid_config[cellIndex];
     if (!cell) return;
@@ -633,15 +701,15 @@ export default function EditorPage() {
             if (!page) return;
             const layout = layouts.find((l) => l.id === page.layout_id);
             if (!layout) return;
-            // Magazine freeform layouts don't use grid cells
-            if (isMagazineConfig(layout.grid_config)) return;
+            // Freeform layouts don't use grid cells
+            if (isFreeformConfig(layout.grid_config)) return;
             const emptyCellIdx = layout.grid_config.findIndex((cell, idx) => {
               if (cell.type === "text") return false;
               const hasElement = page.elements?.some(
                 (el) =>
                   el.element_type === "image" &&
-                  Math.abs(el.position_x - cell.x) < 2 &&
-                  Math.abs(el.position_y - cell.y) < 2
+                  Math.abs(el.position_x - cell.x) < 0.5 &&
+                  Math.abs(el.position_y - cell.y) < 0.5
               );
               return !hasElement;
             });
@@ -676,7 +744,8 @@ export default function EditorPage() {
                     if (pg?.layout_id && getMagazineTemplate(pg.layout_id)) {
                       setMagazinePageIndex(pageIndex);
                     } else {
-                      setDesignerPageIndex(pageIndex);
+                      // All other pages → open Fabric page editor
+                      setFabricEditorPageIndex(pageIndex);
                     }
                   }
                 }}
@@ -686,16 +755,16 @@ export default function EditorPage() {
                   if (!page) return;
                   const layout = layouts.find((l) => l.id === page.layout_id);
                   if (!layout) return;
-                  // Magazine freeform layouts don't support grid drops
-                  if (isMagazineConfig(layout.grid_config)) return;
+                  // Freeform layouts don't support grid drops
+                  if (isFreeformConfig(layout.grid_config)) return;
                   const cell = layout.grid_config[cellIndex];
                   if (!cell || cell.type === "text") return;
 
                   // Check if element already exists at this position
                   const existing = page.elements?.find(
                     (el) =>
-                      Math.abs(el.position_x - cell.x) < 2 &&
-                      Math.abs(el.position_y - cell.y) < 2
+                      Math.abs(el.position_x - cell.x) < 0.5 &&
+                      Math.abs(el.position_y - cell.y) < 0.5
                   );
 
                   setSaving(true);
@@ -721,6 +790,10 @@ export default function EditorPage() {
                   setSaving(false);
                 }}
                 onAddPage={addPage}
+                onDropTemplate={async (pageIndex, layoutId) => {
+                  setActivePage(pageIndex);
+                  await changeLayout(layoutId, pageIndex);
+                }}
               />
             </div>
           </div>
@@ -747,8 +820,8 @@ export default function EditorPage() {
             const page = pages[designerPageIndex];
             const existing = page?.elements?.find(
               (el) =>
-                Math.abs(el.position_x - cell.x) < 2 &&
-                Math.abs(el.position_y - cell.y) < 2
+                Math.abs(el.position_x - cell.x) < 0.5 &&
+                Math.abs(el.position_y - cell.y) < 0.5
             );
             if (existing) {
               await supabase
@@ -809,6 +882,53 @@ export default function EditorPage() {
         );
       })()}
 
+      {/* Fabric Page Editor — replaces DesignerModal for non-magazine pages */}
+      {fabricEditorPageIndex !== null && pages[fabricEditorPageIndex] && (() => {
+        const pg = pages[fabricEditorPageIndex];
+        const fabricLayout = layouts.find((l) => l.id === pg.layout_id);
+        const fabricConfig = fabricLayout && isFabricConfig(fabricLayout.grid_config) ? fabricLayout.grid_config : null;
+
+        // Canvas dimensions: from the Fabric template or from format (cm → px at 72 DPI)
+        const pageDims = fabricConfig?.width && fabricConfig?.height
+          ? { width: fabricConfig.width, height: fabricConfig.height }
+          : { width: Math.round(formatDimensions.width_cm * 28.35), height: Math.round(formatDimensions.height_cm * 28.35) };
+
+        // Initial JSON: page's saved fabric_json (user mods) > template's fabricJSON > nothing
+        const initialJSON = pg.fabric_json || fabricConfig?.fabricJSON || undefined;
+
+        // Grid cells: if the layout is a standard grid (not freeform), pass the cells
+        const gridCells = fabricLayout && !isFreeformConfig(fabricLayout.grid_config)
+          ? (fabricLayout.grid_config as GridCell[])
+          : undefined;
+
+        const label = pg.page_type === "cover"
+          ? "Couverture"
+          : pg.page_type === "back_cover"
+            ? "4ème de couverture"
+            : `Page ${pg.page_number}`;
+
+        return (
+          <TemplateEditorModal
+            pageId={pg.id}
+            initialFabricJSON={initialJSON}
+            pageDimensions={pageDims}
+            pageLabel={label}
+            gridCells={gridCells}
+            pageElements={pg.elements}
+            layouts={layouts}
+            onSelectLayout={async (layoutId) => {
+              // Change the page layout from within the Fabric editor
+              setActivePage(fabricEditorPageIndex);
+              await changeLayout(layoutId, fabricEditorPageIndex);
+            }}
+            onClose={() => setFabricEditorPageIndex(null)}
+            onPageSaved={() => {
+              loadProject();
+            }}
+          />
+        );
+      })()}
+
       {/* Format Reset Confirmation Modal */}
       {formatResetPopup && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -839,6 +959,7 @@ export default function EditorPage() {
           </div>
         </div>
       )}
+
       {/* Template Editor Modal (super_admin) */}
       {templateEditorTheme && (
         <TemplateEditorModal

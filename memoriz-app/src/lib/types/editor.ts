@@ -19,10 +19,11 @@ export type LayoutTemplate = {
   id: string;
   name: string;
   photo_count: number;
-  grid_config: GridCell[] | MagazineFreeformConfig;
+  grid_config: GridCell[] | AnyFreeformConfig;
   category: string;
   display_order: number;
   thumbnail_url?: string | null;       // optional preview image
+  is_published?: boolean;              // false = draft (super_admin only)
 };
 
 export type PageElement = {
@@ -84,6 +85,7 @@ export type FreeformElement = {
   borderStyle?: "solid" | "dashed" | "dotted";
 };
 
+/** Legacy freeform config with explicit element list */
 export type MagazineFreeformConfig = {
   mode: "freeform";
   backgroundColor?: string;
@@ -91,14 +93,49 @@ export type MagazineFreeformConfig = {
   elements: Omit<FreeformElement, "id">[];
 };
 
-export function isMagazineConfig(
+/** New freeform config created by the Canva-like template editor (stores Fabric.js JSON) */
+export type FabricFreeformConfig = {
+  mode: "freeform";
+  fabricJSON: string;
+  pageType: string;
+  /** Canvas width in px (used for aspect-ratio display) */
+  width?: number;
+  /** Canvas height in px (used for aspect-ratio display) */
+  height?: number;
+};
+
+/** Union of both freeform config formats */
+export type AnyFreeformConfig = MagazineFreeformConfig | FabricFreeformConfig;
+
+/** Check if a grid_config is any kind of freeform (not a GridCell array) */
+export function isFreeformConfig(
   config: unknown
-): config is MagazineFreeformConfig {
+): config is AnyFreeformConfig {
   return (
     config !== null &&
     typeof config === "object" &&
     !Array.isArray(config) &&
     (config as Record<string, unknown>).mode === "freeform"
+  );
+}
+
+/** Check if a freeform config is specifically the legacy element-based format */
+export function isMagazineConfig(
+  config: unknown
+): config is MagazineFreeformConfig {
+  return (
+    isFreeformConfig(config) &&
+    Array.isArray((config as MagazineFreeformConfig).elements)
+  );
+}
+
+/** Check if a freeform config is the new Fabric.js-based format */
+export function isFabricConfig(
+  config: unknown
+): config is FabricFreeformConfig {
+  return (
+    isFreeformConfig(config) &&
+    typeof (config as FabricFreeformConfig).fabricJSON === "string"
   );
 }
 
@@ -192,6 +229,10 @@ export type ProjectPage = {
   page_type: "cover" | "content" | "back_cover" | "inner_cover" | "title";
   layout_id: string | null;
   background_color: string;
+  /** Per-page Fabric.js canvas JSON (user customisations). NULL = use template as-is. */
+  fabric_json?: string | null;
+  /** Per-page thumbnail data URL generated from Fabric canvas */
+  fabric_thumbnail?: string | null;
   elements?: PageElement[];
 };
 

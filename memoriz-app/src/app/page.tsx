@@ -10,8 +10,8 @@ export default function Home() {
     <>
       <HeroSection />
       <ThemesSection />
-      <DragDropSection />
       <HowItWorksSection />
+      <DragDropSection />
       <TestimonialsSection />
     </>
   );

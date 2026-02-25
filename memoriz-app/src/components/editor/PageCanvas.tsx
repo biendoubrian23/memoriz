@@ -16,7 +16,7 @@ import type {
   GridCell,
   PageElement,
 } from "@/lib/types/editor";
-import { isMagazineConfig } from "@/lib/types/editor";
+import { isMagazineConfig, isFreeformConfig, isFabricConfig } from "@/lib/types/editor";
 
 /* ─── Props ─── */
 type Props = {
@@ -27,6 +27,7 @@ type Props = {
   onPageAction: (pageIndex: number, action: "photos" | "layout" | "designer") => void;
   onRemoveElement: (elementId: string) => void;
   onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
+  onDropTemplate?: (pageIndex: number, layoutId: string) => void;
   onAddPage?: () => void;
   formatDimensions?: { width_cm: number; height_cm: number };
 };
@@ -46,6 +47,7 @@ export default function PageCanvas({
   onPageAction,
   onRemoveElement,
   onDropPhoto,
+  onDropTemplate,
   onAddPage,
   formatDimensions,
 }: Props) {
@@ -141,6 +143,19 @@ export default function PageCanvas({
               className="group/page relative cursor-pointer"
               style={{ width: pageWidthPx }}
               onClick={() => onSelectPage(showCoverPage)}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("template-id")) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }
+              }}
+              onDrop={(e) => {
+                const layoutId = e.dataTransfer.getData("template-id");
+                if (layoutId && onDropTemplate) {
+                  e.preventDefault();
+                  onDropTemplate(showCoverPage, layoutId);
+                }
+              }}
             >
               <div
                 className="relative rounded-xl overflow-hidden ring-1 ring-black/5"
@@ -192,6 +207,7 @@ export default function PageCanvas({
                       onPageAction={onPageAction}
                       onRemoveElement={onRemoveElement}
                       onDropPhoto={onDropPhoto}
+                      onDropTemplate={onDropTemplate}
                       spreadWidthPx={spreadWidthPx}
                       pageAspectRatio={pageAspectRatio}
                     />
@@ -286,6 +302,7 @@ function SpreadBlock({
   onPageAction,
   onRemoveElement,
   onDropPhoto,
+  onDropTemplate,
   spreadWidthPx,
   pageAspectRatio,
 }: {
@@ -296,6 +313,7 @@ function SpreadBlock({
   onPageAction: (idx: number, action: "photos" | "layout" | "designer") => void;
   onRemoveElement: (id: string) => void;
   onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
+  onDropTemplate?: (pageIndex: number, layoutId: string) => void;
   spreadWidthPx: number;
   pageAspectRatio: string;
 }) {
@@ -332,6 +350,7 @@ function SpreadBlock({
           onPageAction={onPageAction}
           onRemoveElement={onRemoveElement}
           onDropPhoto={onDropPhoto}
+          onDropTemplate={onDropTemplate}
           pageAspectRatio={pageAspectRatio}
         />
 
@@ -354,6 +373,7 @@ function SpreadBlock({
           onPageAction={onPageAction}
           onRemoveElement={onRemoveElement}
           onDropPhoto={onDropPhoto}
+          onDropTemplate={onDropTemplate}
           pageAspectRatio={pageAspectRatio}
         />
       </div>
@@ -371,6 +391,7 @@ function SpreadPage({
   onPageAction,
   onRemoveElement,
   onDropPhoto,
+  onDropTemplate,
   pageAspectRatio,
 }: {
   entry: SpreadEntry;
@@ -381,6 +402,7 @@ function SpreadPage({
   onPageAction: (idx: number, action: "photos" | "layout" | "designer") => void;
   onRemoveElement: (id: string) => void;
   onDropPhoto?: (pageIndex: number, cellIndex: number, photoData: string) => void;
+  onDropTemplate?: (pageIndex: number, layoutId: string) => void;
   pageAspectRatio: string;
 }) {
   const borderRadius = side === "left" ? "rounded-l" : "rounded-r";
@@ -401,6 +423,19 @@ function SpreadPage({
     <div
       className={`group/page flex-1 ${borderRadius} overflow-hidden cursor-pointer relative`}
       onClick={() => onSelectPage(entry.idx)}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("template-id")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={(e) => {
+        const layoutId = e.dataTransfer.getData("template-id");
+        if (layoutId && onDropTemplate) {
+          e.preventDefault();
+          onDropTemplate(entry.idx, layoutId);
+        }
+      }}
     >
       <div
         className="relative border border-dashed border-gray-200"
@@ -594,15 +629,67 @@ function PageContent({
     );
   }
 
-  const cells: GridCell[] = (layout && !isMagazineConfig(layout.grid_config)) ? layout.grid_config : [];
+  // ── Fabric freeform layout: show thumbnail preview ──
+  if (layout && isFabricConfig(layout.grid_config)) {
+    const hasPerPageMods = !!page.fabric_json;
+    // Use page-specific thumbnail if available (saved from Fabric editor)
+    const thumbnailSrc = hasPerPageMods && page.fabric_thumbnail
+      ? page.fabric_thumbnail
+      : layout.thumbnail_url;
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-white">
+        {thumbnailSrc ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={thumbnailSrc}
+            alt={layout.name}
+            className="w-full h-full object-contain"
+            draggable={false}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="text-center text-gray-300">
+              <LayoutGrid className="w-8 h-8 mx-auto mb-1 opacity-40" />
+              <span className="text-[10px]">Template Fabric</span>
+            </div>
+          </div>
+        )}
+        {hasPerPageMods && (
+          <div className="absolute top-1 right-1 bg-blue-500/90 text-white text-[7px] font-bold px-1.5 py-0.5 rounded">
+            Modifié
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const cells: GridCell[] = (layout && !isFreeformConfig(layout.grid_config)) ? layout.grid_config : [];
   const elements = page.elements ?? [];
+
+  // ── Page customized in Fabric editor: show thumbnail if available ──
+  if (page.fabric_json && page.fabric_thumbnail) {
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-white">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={page.fabric_thumbnail}
+          alt="Page personnalisée"
+          className="w-full h-full object-contain"
+          draggable={false}
+        />
+        <div className="absolute top-1 right-1 bg-blue-500/90 text-white text-[7px] font-bold px-1.5 py-0.5 rounded">
+          Modifié
+        </div>
+      </div>
+    );
+  }
 
   const getElement = (cell: GridCell, i: number): PageElement | undefined =>
     elements.find(
       (el) =>
-        Math.abs(el.position_x - cell.x) < 2 &&
-        Math.abs(el.position_y - cell.y) < 2
-    ) ?? elements[i];
+        Math.abs(el.position_x - cell.x) < 0.5 &&
+        Math.abs(el.position_y - cell.y) < 0.5
+    );
 
   if (cells.length === 0) {
     return (
@@ -672,21 +759,25 @@ function PageContent({
               <div
                 className="w-full h-full relative rounded-sm overflow-hidden group/cell"
                 onDragOver={(e) => {
+                  // Only intercept photo drags — let template drags bubble up
+                  if (!e.dataTransfer.types.includes("application/memoriz-photo")) return;
                   e.preventDefault();
                   e.stopPropagation();
                   e.dataTransfer.dropEffect = "copy";
                   setDragOverCell(i);
                 }}
                 onDragLeave={(e) => {
+                  if (!e.dataTransfer.types.includes("application/memoriz-photo")) return;
                   e.stopPropagation();
                   setDragOverCell(null);
                 }}
                 onDrop={(e) => {
+                  const data = e.dataTransfer.getData("application/memoriz-photo");
+                  if (!data) return; // Not a photo drop — let it bubble
                   e.preventDefault();
                   e.stopPropagation();
                   setDragOverCell(null);
-                  const data = e.dataTransfer.getData("application/memoriz-photo");
-                  if (data && onDropPhoto) {
+                  if (onDropPhoto) {
                     const photo = JSON.parse(data);
                     onDropPhoto(pageIndex, i, photo.publicUrl || photo.file_path);
                   }
@@ -727,21 +818,25 @@ function PageContent({
                     : "border-gray-200 bg-gray-50/30"
                 }`}
                 onDragOver={(e) => {
+                  // Only intercept photo drags — let template drags bubble up
+                  if (!e.dataTransfer.types.includes("application/memoriz-photo")) return;
                   e.preventDefault();
                   e.stopPropagation();
                   e.dataTransfer.dropEffect = "copy";
                   setDragOverCell(i);
                 }}
                 onDragLeave={(e) => {
+                  if (!e.dataTransfer.types.includes("application/memoriz-photo")) return;
                   e.stopPropagation();
                   setDragOverCell(null);
                 }}
                 onDrop={(e) => {
+                  const data = e.dataTransfer.getData("application/memoriz-photo");
+                  if (!data) return; // Not a photo drop — let it bubble
                   e.preventDefault();
                   e.stopPropagation();
                   setDragOverCell(null);
-                  const data = e.dataTransfer.getData("application/memoriz-photo");
-                  if (data && onDropPhoto) {
+                  if (onDropPhoto) {
                     const photo = JSON.parse(data);
                     onDropPhoto(pageIndex, i, photo.publicUrl || photo.file_path);
                   }

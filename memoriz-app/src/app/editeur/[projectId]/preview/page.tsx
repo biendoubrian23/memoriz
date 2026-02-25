@@ -18,7 +18,7 @@ import type {
   PageElement,
   GridCell,
 } from "@/lib/types/editor";
-import { isMagazineConfig } from "@/lib/types/editor";
+import { isMagazineConfig, isFreeformConfig, isFabricConfig } from "@/lib/types/editor";
 // Magazine layout templates now come from DB only
 
 /* ═══════════════════════════════════════════
@@ -388,11 +388,10 @@ export default function PreviewPage() {
           onClick={() => goTo("prev")}
           disabled={!canGoPrev || !!flip}
           aria-label="Page précédente"
-          className={`absolute left-4 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-            canGoPrev && !flip
-              ? "text-white/60 hover:text-white hover:bg-white/10"
-              : "text-white/20 cursor-not-allowed"
-          }`}
+          className={`absolute left-4 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-all ${canGoPrev && !flip
+            ? "text-white/60 hover:text-white hover:bg-white/10"
+            : "text-white/20 cursor-not-allowed"
+            }`}
         >
           <ChevronLeft className="w-8 h-8" />
         </button>
@@ -524,17 +523,17 @@ export default function PreviewPage() {
                   /* position over the correct half */
                   ...(flip.direction === "forward"
                     ? {
-                        right: 0,
-                        width: "calc(50% - 2px)",
-                        transformOrigin: "left center",
-                        transform: `rotateY(${-flip.angle}deg)`,
-                      }
+                      right: 0,
+                      width: "calc(50% - 2px)",
+                      transformOrigin: "left center",
+                      transform: `rotateY(${-flip.angle}deg)`,
+                    }
                     : {
-                        left: 0,
-                        width: "calc(50% - 2px)",
-                        transformOrigin: "right center",
-                        transform: `rotateY(${flip.angle}deg)`,
-                      }),
+                      left: 0,
+                      width: "calc(50% - 2px)",
+                      transformOrigin: "right center",
+                      transform: `rotateY(${flip.angle}deg)`,
+                    }),
                   height: "100%",
                   transformStyle: "preserve-3d",
                 }}
@@ -561,12 +560,10 @@ export default function PreviewPage() {
                     style={{
                       background:
                         flip.direction === "forward"
-                          ? `linear-gradient(to right, rgba(0,0,0,${
-                              0.02 + shadowI * 0.25
-                            }) 0%, transparent 50%)`
-                          : `linear-gradient(to left, rgba(0,0,0,${
-                              0.02 + shadowI * 0.25
-                            }) 0%, transparent 50%)`,
+                          ? `linear-gradient(to right, rgba(0,0,0,${0.02 + shadowI * 0.25
+                          }) 0%, transparent 50%)`
+                          : `linear-gradient(to left, rgba(0,0,0,${0.02 + shadowI * 0.25
+                          }) 0%, transparent 50%)`,
                     }}
                   />
                 </div>
@@ -594,12 +591,10 @@ export default function PreviewPage() {
                     style={{
                       background:
                         flip.direction === "forward"
-                          ? `linear-gradient(to left, rgba(0,0,0,${
-                              0.02 + shadowI * 0.25
-                            }) 0%, transparent 50%)`
-                          : `linear-gradient(to right, rgba(0,0,0,${
-                              0.02 + shadowI * 0.25
-                            }) 0%, transparent 50%)`,
+                          ? `linear-gradient(to left, rgba(0,0,0,${0.02 + shadowI * 0.25
+                          }) 0%, transparent 50%)`
+                          : `linear-gradient(to right, rgba(0,0,0,${0.02 + shadowI * 0.25
+                          }) 0%, transparent 50%)`,
                     }}
                   />
                 </div>
@@ -621,11 +616,10 @@ export default function PreviewPage() {
                       : "0 1rem 1rem 0",
                   boxShadow:
                     flip.angle > 5
-                      ? `${
-                          flip.direction === "forward" ? "" : "-"
-                        }${Math.round(shadowI * 30)}px 0 ${Math.round(
-                          shadowI * 40
-                        )}px rgba(0,0,0,${shadowI * 0.6})`
+                      ? `${flip.direction === "forward" ? "" : "-"
+                      }${Math.round(shadowI * 30)}px 0 ${Math.round(
+                        shadowI * 40
+                      )}px rgba(0,0,0,${shadowI * 0.6})`
                       : "none",
                 }}
               />
@@ -638,11 +632,10 @@ export default function PreviewPage() {
           onClick={() => goTo("next")}
           disabled={!canGoNext || !!flip}
           aria-label="Page suivante"
-          className={`absolute right-4 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-            canGoNext && !flip
-              ? "text-white/60 hover:text-white hover:bg-white/10"
-              : "text-white/20 cursor-not-allowed"
-          }`}
+          className={`absolute right-4 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-all ${canGoNext && !flip
+            ? "text-white/60 hover:text-white hover:bg-white/10"
+            : "text-white/20 cursor-not-allowed"
+            }`}
         >
           <ChevronRight className="w-8 h-8" />
         </button>
@@ -661,11 +654,10 @@ export default function PreviewPage() {
                   setCurrentView(i);
                 }
               }}
-              className={`rounded-full transition-all ${
-                i === currentView
-                  ? "bg-white w-6 h-2"
-                  : "bg-white/30 hover:bg-white/50 w-2 h-2"
-              }`}
+              className={`rounded-full transition-all ${i === currentView
+                ? "bg-white w-6 h-2"
+                : "bg-white/30 hover:bg-white/50 w-2 h-2"
+                }`}
             />
           ))}
         </div>
@@ -764,7 +756,50 @@ function PageContent({
     );
   }
 
-  const cells: GridCell[] = (layout && !isMagazineConfig(layout.grid_config)) ? layout.grid_config : [];
+  // ── Fabric freeform layout: show thumbnail preview ──
+  if (layout && isFabricConfig(layout.grid_config)) {
+    const hasPerPageMods = !!page.fabric_json;
+    // Use page-specific thumbnail if available (saved from Fabric editor)
+    const thumbnailSrc = hasPerPageMods && page.fabric_thumbnail
+      ? page.fabric_thumbnail
+      : layout.thumbnail_url;
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-white">
+        {thumbnailSrc ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={thumbnailSrc}
+            alt={layout.name}
+            className="w-full h-full object-contain"
+            draggable={false}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="text-center text-gray-300">
+              <span className="text-xs">Template Fabric</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const cells: GridCell[] = (layout && !isFreeformConfig(layout.grid_config)) ? layout.grid_config : [];
+
+  // ── Page customized in Fabric editor: show thumbnail if available ──
+  if (page.fabric_json && page.fabric_thumbnail) {
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-white">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={page.fabric_thumbnail}
+          alt="Page personnalisée"
+          className="w-full h-full object-contain"
+          draggable={false}
+        />
+      </div>
+    );
+  }
 
   if (cells.length === 0) {
     return (

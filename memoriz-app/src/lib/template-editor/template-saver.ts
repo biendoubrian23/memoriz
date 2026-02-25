@@ -20,6 +20,12 @@ export type TemplateSaveData = {
   pageType: "cover" | "interior" | "back";
   /** Number of photos in the template */
   photoCount: number;
+  /** Canvas width in px (for aspect ratio) */
+  canvasWidth?: number;
+  /** Canvas height in px (for aspect ratio) */
+  canvasHeight?: number;
+  /** Whether template is published (visible to all users) */
+  isPublished?: boolean;
 };
 
 /**
@@ -51,11 +57,13 @@ export async function saveTemplate(
 
     const thumbnailUrl = uploadError ? null : urlData.publicUrl;
 
-    // 2. Build grid_config as MagazineFreeformConfig
+    // 2. Build grid_config as FabricFreeformConfig
     const gridConfig = {
       mode: "freeform",
       fabricJSON: data.canvasJSON,
       pageType: data.pageType,
+      ...(data.canvasWidth ? { width: data.canvasWidth } : {}),
+      ...(data.canvasHeight ? { height: data.canvasHeight } : {}),
     };
 
     // 3. Generate a unique template ID
@@ -72,6 +80,7 @@ export async function saveTemplate(
         category: data.category,
         display_order: 9900 + Math.floor(Math.random() * 100),
         thumbnail_url: thumbnailUrl,
+        is_published: data.isPublished ?? false,
       })
       .select("id")
       .single();
@@ -99,12 +108,15 @@ export async function updateTemplate(
     if (data.name) updates.name = data.name;
     if (data.category) updates.category = data.category;
     if (data.photoCount !== undefined) updates.photo_count = data.photoCount;
+    if (data.isPublished !== undefined) updates.is_published = data.isPublished;
 
     if (data.canvasJSON) {
       updates.grid_config = JSON.stringify({
         mode: "freeform",
         fabricJSON: data.canvasJSON,
         pageType: data.pageType ?? "cover",
+        ...(data.canvasWidth ? { width: data.canvasWidth } : {}),
+        ...(data.canvasHeight ? { height: data.canvasHeight } : {}),
       });
     }
 
@@ -138,6 +150,73 @@ export async function updateTemplate(
       error: err instanceof Error ? err.message : "Erreur inconnue",
     };
   }
+}
+
+/**
+ * Publish (or unpublish) a template — toggles is_published
+ */
+export async function publishTemplate(
+  templateId: string,
+  publish: boolean
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from("layout_templates")
+    .update({ is_published: publish })
+    .eq("id", templateId);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+/**
+ * Save per-page Fabric.js canvas JSON (user customisations)
+ * If a thumbnail data URL is provided, uploads it to Storage
+ * and saves the public URL in fabric_thumbnail column.
+ */
+export async function savePageFabricJSON(
+  pageId: string,
+  fabricJSON: string,
+  thumbnailDataURL?: string
+): Promise<{ success: boolean; error?: string }> {
+  let thumbnailUrl: string | undefined;
+
+  // Upload thumbnail to storage if provided
+  if (thumbnailDataURL) {
+    try {
+      const blob = dataURLToBlob(thumbnailDataURL);
+      const path = `page-thumbnails/${pageId}_${Date.now()}.png`;
+      const { error: upErr } = await supabase.storage
+        .from("images")
+        .upload(path, blob, { contentType: "image/png", upsert: true });
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("images").getPublicUrl(path);
+        thumbnailUrl = urlData.publicUrl;
+      }
+    } catch {
+      // Silently continue without thumbnail
+    }
+  }
+
+  // Try saving with fabric_thumbnail column
+  const updates: Record<string, unknown> = { fabric_json: fabricJSON };
+  if (thumbnailUrl) updates.fabric_thumbnail = thumbnailUrl;
+
+  const { error } = await supabase
+    .from("project_pages")
+    .update(updates)
+    .eq("id", pageId);
+
+  // Fallback: if fabric_thumbnail column doesn't exist yet, save just fabric_json
+  if (error && error.message?.includes("fabric_thumbnail")) {
+    const { error: fallbackErr } = await supabase
+      .from("project_pages")
+      .update({ fabric_json: fabricJSON })
+      .eq("id", pageId);
+    if (fallbackErr) return { success: false, error: fallbackErr.message };
+    return { success: true };
+  }
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
 }
 
 /**

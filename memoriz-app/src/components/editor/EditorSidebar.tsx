@@ -21,8 +21,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { LayoutTemplate, UserPhoto, GridCell, ProjectOptions, SelectedOptions } from "@/lib/types/editor";
-import { isMagazineConfig } from "@/lib/types/editor";
-import type { MagazineFreeformConfig } from "@/lib/types/editor";
+import { isMagazineConfig, isFreeformConfig, isFabricConfig } from "@/lib/types/editor";
+import type { MagazineFreeformConfig, AnyFreeformConfig, FabricFreeformConfig } from "@/lib/types/editor";
 
 type SidebarTab = "photos" | "layouts" | "text" | "templates" | "options" | "settings";
 
@@ -604,6 +604,13 @@ function SidebarTemplateCard({
   const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
 
   const isMagazine = layout.category === "magazine";
+  const isDraft = layout.is_published === false;
+
+  // Compute aspect ratio from Fabric template dimensions (fallback to 3/4 portrait)
+  const fabricConfig = isFabricConfig(layout.grid_config) ? layout.grid_config as FabricFreeformConfig : null;
+  const templateAspect = fabricConfig?.width && fabricConfig?.height
+    ? `${fabricConfig.width} / ${fabricConfig.height}`
+    : null;
 
   useEffect(() => {
     if (hovered && cardRef.current) {
@@ -621,17 +628,27 @@ function SidebarTemplateCard({
       <button
         ref={cardRef}
         onClick={onClick}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("template-id", layout.id);
+          e.dataTransfer.effectAllowed = "copy";
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className={`relative aspect-[4/3] rounded-lg border-2 p-2 transition-all hover:shadow-md ${
+        className={`relative rounded-lg border-2 p-2 transition-all hover:shadow-md ${
+          templateAspect ? "" : "aspect-[4/3] "
+        }${
           isSelected
             ? "border-primary bg-primary/5"
             : "border-gray-100 hover:border-gray-200"
         }`}
+        style={templateAspect ? { aspectRatio: templateAspect } : undefined}
       >
         {/* Mini preview */}
         <div className="w-full h-full relative bg-white rounded overflow-hidden">
-          {isMagazineConfig(layout.grid_config) ? (
+          {isFabricConfig(layout.grid_config) ? (
+            <FabricThumbnailPreview thumbnailUrl={layout.thumbnail_url} />
+          ) : isMagazineConfig(layout.grid_config) ? (
             <FreeformMiniPreview config={layout.grid_config} />
           ) : layout.grid_config.map((cell: GridCell, i: number) => (
             <div
@@ -666,6 +683,11 @@ function SidebarTemplateCard({
               MAG
             </div>
           )}
+          {isDraft && (
+            <div className="absolute top-0.5 left-0.5 bg-amber-500/90 text-white text-[6px] font-bold px-1 py-0.5 rounded">
+              BROUILLON
+            </div>
+          )}
         </div>
         <span className="absolute bottom-1 left-1 right-1 text-[9px] text-center text-gray-500 truncate">
           {layout.name}
@@ -690,8 +712,13 @@ function SidebarTemplateCard({
           }}
         >
           <div className="w-56 bg-white rounded-xl shadow-2xl border border-gray-200 p-3">
-            <div className="w-full aspect-[3/4] relative bg-gray-50 rounded-lg overflow-hidden mb-2">
-              {isMagazineConfig(layout.grid_config) ? (
+            <div
+              className={`w-full relative bg-gray-50 rounded-lg overflow-hidden mb-2 ${templateAspect ? "" : "aspect-[3/4]"}`}
+              style={templateAspect ? { aspectRatio: templateAspect } : undefined}
+            >
+              {isFabricConfig(layout.grid_config) ? (
+                <FabricThumbnailPreview thumbnailUrl={layout.thumbnail_url} />
+              ) : isMagazineConfig(layout.grid_config) ? (
                 <FreeformMiniPreview config={layout.grid_config} />
               ) : layout.grid_config.map((cell: GridCell, i: number) => (
                 <div
@@ -729,12 +756,36 @@ function SidebarTemplateCard({
             </p>
             <p className="text-[10px] text-gray-400 text-center">
               {layout.photo_count} photo{layout.photo_count > 1 ? "s" : ""}
-              {!isMagazineConfig(layout.grid_config) && layout.grid_config.some((c) => c.type === "text") && " + texte"}
+              {!isFreeformConfig(layout.grid_config) && layout.grid_config.some((c) => c.type === "text") && " + texte"}
             </p>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+/* ═════════════════════════════════════════════
+   FabricThumbnailPreview — shows the stored
+   thumbnail image for Fabric-based templates
+   ═════════════════════════════════════════════ */
+function FabricThumbnailPreview({ thumbnailUrl }: { thumbnailUrl?: string | null }) {
+  if (!thumbnailUrl) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+        <LayoutGrid className="w-6 h-6 opacity-40" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-full h-full relative">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={thumbnailUrl}
+        alt="Template preview"
+        className="w-full h-full object-cover"
+      />
+    </div>
   );
 }
 
@@ -876,9 +927,13 @@ function TemplatesAccordion({
       </p>
 
       {TEMPLATE_THEMES.map((theme) => {
-        const themeLayouts = layouts.filter(
+        const allThemeLayouts = layouts.filter(
           (l) => l.category === theme.filterCategory
         );
+        // Non-super_admin: only published templates (or legacy ones with no is_published field)
+        const themeLayouts = isSuperAdmin
+          ? allThemeLayouts
+          : allThemeLayouts.filter((l) => l.is_published !== false);
         const isOpen = openSection === theme.key;
         const count = themeLayouts.length;
 

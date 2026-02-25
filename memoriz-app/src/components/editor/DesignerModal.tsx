@@ -17,7 +17,7 @@ import type {
   PageElement,
   UserPhoto,
 } from "@/lib/types/editor";
-import { isMagazineConfig } from "@/lib/types/editor";
+import { isFreeformConfig } from "@/lib/types/editor";
 
 type Props = {
   page: ProjectPage;
@@ -55,7 +55,7 @@ export default function DesignerModal({
   const pageAspect = `${dims.width_cm} / ${dims.height_cm}`;
 
   const layout = layouts.find((l) => l.id === page.layout_id) ?? null;
-  const cells: GridCell[] = (layout && !isMagazineConfig(layout.grid_config)) ? layout.grid_config : [];
+  const cells: GridCell[] = (layout && !isFreeformConfig(layout.grid_config)) ? layout.grid_config : [];
   const elements = page.elements ?? [];
 
   const getElement = (cell: GridCell, i: number): PageElement | undefined =>
@@ -432,9 +432,9 @@ function TemplateCard({
       >
         {/* Mini preview */}
         <div className="w-full h-full relative bg-white rounded overflow-hidden">
-          {isMagazineConfig(layout.grid_config) ? (
+          {isFreeformConfig(layout.grid_config) ? (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-50">
-              <span className="text-[8px] font-bold text-purple-400 uppercase tracking-wider">Magazine</span>
+              <span className="text-[8px] font-bold text-purple-400 uppercase tracking-wider">Template</span>
             </div>
           ) : layout.grid_config.map((cell: GridCell, i: number) => (
             <div
@@ -505,11 +505,11 @@ function TemplateCard({
         >
           <div className="w-56 bg-white rounded-xl shadow-2xl border border-gray-200 p-3">
             <div className="w-full aspect-[3/4] relative bg-gray-50 rounded-lg overflow-hidden mb-2">
-              {isMagazineConfig(layout.grid_config) ? (
+              {isFreeformConfig(layout.grid_config) ? (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-50">
                   <div className="text-center">
                     <span className="block text-sm font-bold text-purple-500">✨</span>
-                    <span className="text-[10px] font-semibold text-purple-400">Magazine</span>
+                    <span className="text-[10px] font-semibold text-purple-400">Template</span>
                   </div>
                 </div>
               ) : layout.grid_config.map((cell: GridCell, i: number) => (
@@ -549,7 +549,7 @@ function TemplateCard({
             <p className="text-[10px] text-gray-400 text-center">
               {layout.photo_count} photo
               {layout.photo_count > 1 ? "s" : ""}
-              {!isMagazineConfig(layout.grid_config) && layout.grid_config.some((c) => c.type === "text") &&
+              {!isFreeformConfig(layout.grid_config) && layout.grid_config.some((c) => c.type === "text") &&
                 " + texte"}
             </p>
           </div>

@@ -19,14 +19,17 @@ import {
   Grid3X3,
   Loader2,
   Trash2,
+  ArrowLeft,
 } from "lucide-react";
 import type { CanvasEditorHandle } from "./CanvasEditor";
 import {
   SHAPE_PRESETS,
   TEXT_PRESETS,
   FRAME_PRESETS,
+  CLIP_FRAME_PRESETS,
   createTextFromPreset,
   createFrame,
+  createClipFrame,
 } from "@/lib/template-editor/element-presets";
 import { GOOGLE_FONTS, loadFont } from "@/lib/template-editor/font-loader";
 import {
@@ -36,26 +39,35 @@ import {
 } from "@/lib/template-editor/bg-removal";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { createClient } from "@/lib/supabase/client";
+import type { LayoutTemplate, GridCell } from "@/lib/types/editor";
+import { isFreeformConfig, isFabricConfig } from "@/lib/types/editor";
+import { LayoutGrid } from "lucide-react";
 
-type SideTab = "text" | "shapes" | "images" | "upload" | "frames" | "background" | "elements";
+type SideTab = "text" | "shapes" | "images" | "upload" | "frames" | "background" | "elements" | "layouts";
 
 type Props = {
   editorRef: React.RefObject<CanvasEditorHandle | null>;
+  /** Available layouts for the "Mises en page" tab */
+  layouts?: LayoutTemplate[];
+  /** Called when user selects a layout from the panel */
+  onSelectLayout?: (layoutId: string) => void;
 };
 
-const SIDE_TABS: { key: SideTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const SIDE_TABS_BASE: { key: SideTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "text", label: "Texte", icon: Type },
-  { key: "shapes", label: "Formes", icon: Shapes },
   { key: "elements", label: "Éléments", icon: Grid3X3 },
   { key: "images", label: "Photos", icon: ImageIcon },
   { key: "upload", label: "Importer", icon: Upload },
-  { key: "frames", label: "Cadres", icon: Frame },
   { key: "background", label: "Fond", icon: Palette },
 ];
 
-const VALID_SIDE_TABS: SideTab[] = ["text", "shapes", "elements", "images", "upload", "frames", "background"];
+const VALID_SIDE_TABS: SideTab[] = ["text", "elements", "images", "upload", "background", "layouts"];
 
-export default function EditorSidePanel({ editorRef }: Props) {
+export default function EditorSidePanel({ editorRef, layouts, onSelectLayout }: Props) {
+  // Build tabs list dynamically — add "Mises en page" tab if layouts are provided
+  const SIDE_TABS = layouts && layouts.length > 0
+    ? [{ key: "layouts" as SideTab, label: "Mises en page", icon: LayoutGrid }, ...SIDE_TABS_BASE]
+    : SIDE_TABS_BASE;
   const [activeTab, setActiveTabRaw] = useState<SideTab>(() => {
     if (typeof window === "undefined") return "text";
     const url = new URL(window.location.href);
@@ -87,11 +99,10 @@ export default function EditorSidePanel({ editorRef }: Props) {
                 setIsOpen(true);
               }
             }}
-            className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors text-[10px] font-medium ${
-              activeTab === key && isOpen
-                ? "bg-purple-50 text-purple-700"
-                : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-            }`}
+            className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors text-[10px] font-medium ${activeTab === key && isOpen
+              ? "bg-purple-50 text-purple-700"
+              : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              }`}
             title={label}
           >
             <Icon className="w-5 h-5" />
@@ -104,12 +115,13 @@ export default function EditorSidePanel({ editorRef }: Props) {
       {isOpen && (
         <div className="w-72 bg-white border-r border-gray-200 overflow-y-auto">
           <div className="p-4">
+            {activeTab === "layouts" && layouts && (
+              <LayoutsPanel layouts={layouts} onSelectLayout={onSelectLayout} editorRef={editorRef} />
+            )}
             {activeTab === "text" && <TextPanel editorRef={editorRef} />}
-            {activeTab === "shapes" && <ShapesPanel editorRef={editorRef} />}
             {activeTab === "elements" && <ElementsPanel editorRef={editorRef} />}
             {activeTab === "images" && <ImagesPanel editorRef={editorRef} />}
             {activeTab === "upload" && <UploadPanel editorRef={editorRef} />}
-            {activeTab === "frames" && <FramesPanel editorRef={editorRef} />}
             {activeTab === "background" && <BackgroundPanel editorRef={editorRef} />}
           </div>
         </div>
@@ -253,8 +265,8 @@ function ElementsPanel({ editorRef }: { editorRef: React.RefObject<CanvasEditorH
 
   const filtered = searchQuery
     ? DECORATIVE_ELEMENTS.filter((el) =>
-        el.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      el.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : DECORATIVE_ELEMENTS;
 
   return (
@@ -555,7 +567,9 @@ function UploadPanel({ editorRef }: { editorRef: React.RefObject<CanvasEditorHan
     }
 
     try {
-      const dataURL = active.toDataURL({ format: "png", multiplier: 1 });
+      // Export at FULL original resolution (undo the canvas scaling)
+      const scaleMultiplier = 1 / Math.min(active.scaleX ?? 1, active.scaleY ?? 1);
+      const dataURL = active.toDataURL({ format: "png", multiplier: scaleMultiplier });
       const blob = dataURLToBlob(dataURL);
 
       const result = await removeImageBackground(blob, setBgRemovalProgress);
@@ -564,6 +578,7 @@ function UploadPanel({ editorRef }: { editorRef: React.RefObject<CanvasEditorHan
       reader.onload = async (e) => {
         const url = e.target?.result as string;
         const newImg = await fabric.FabricImage.fromURL(url);
+        // Re-apply the same scale + position so the image looks identical
         newImg.set({
           left: active.left,
           top: active.top,
@@ -827,5 +842,287 @@ function BackgroundPanel({ editorRef }: { editorRef: React.RefObject<CanvasEdito
         />
       </div>
     </div>
+  );
+}
+
+/* ═══════════════════ LAYOUTS PANEL ═══════════════════ */
+function LayoutsPanel({
+  layouts,
+  onSelectLayout,
+  editorRef,
+}: {
+  layouts: LayoutTemplate[];
+  onSelectLayout?: (layoutId: string) => void;
+  editorRef: React.RefObject<CanvasEditorHandle | null>;
+}) {
+  const [view, setView] = useState<"main" | "grids" | "shapes" | "frames">("main");
+
+  // Separate standard/cover layouts from freeform/fabric templates
+  const standardLayouts = layouts.filter(
+    (l) => !isFreeformConfig(l.grid_config) && l.category === "standard"
+  );
+  const coverLayouts = layouts.filter(
+    (l) => !isFreeformConfig(l.grid_config) && l.category === "cover"
+  );
+  const mixedLayouts = layouts.filter(
+    (l) => !isFreeformConfig(l.grid_config) && l.category === "mixed"
+  );
+  const fabricLayouts = layouts.filter((l) => isFabricConfig(l.grid_config));
+
+  // 1) MAIN VIEW
+  if (view === "main") {
+    return (
+      <div className="space-y-4">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+          Mises en page
+        </h3>
+
+        <div className="grid gap-2">
+          <button
+            onClick={() => setView("grids")}
+            className="flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all text-left group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center group-hover:bg-purple-600 group-hover:text-white transition-colors">
+              <LayoutGrid className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-800">Grilles</p>
+              <p className="text-xs text-gray-500">Agencements de photos et textes</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setView("shapes")}
+            className="flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all text-left group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+              <Shapes className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-800">Formes</p>
+              <p className="text-xs text-gray-500">Formes géométriques simples</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setView("frames")}
+            className="flex items-center gap-3 p-4 border border-gray-200 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition-all text-left group"
+          >
+            <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+              <Frame className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-800">Cadres</p>
+              <p className="text-xs text-gray-500">Masques photo personnalisés</p>
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Common Back Header
+  const Header = ({ title }: { title: string }) => (
+    <div className="flex items-center gap-2 mb-4">
+      <button
+        onClick={() => setView("main")}
+        className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4 text-gray-600" />
+      </button>
+      <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+        {title}
+      </h3>
+    </div>
+  );
+
+  // 2) SHAPES VIEW
+  if (view === "shapes") {
+    return (
+      <div className="space-y-4">
+        <Header title="Formes" />
+        <div className="grid grid-cols-3 gap-2">
+          {SHAPE_PRESETS.map((shape) => (
+            <button
+              key={shape.id}
+              onClick={() => {
+                const canvas = editorRef.current?.getCanvas();
+                if (!canvas) return;
+                const obj = shape.create(canvas);
+                editorRef.current?.addObject(obj);
+              }}
+              className="aspect-square border-2 border-gray-100 rounded-xl flex flex-col items-center justify-center gap-1 hover:border-purple-400 hover:bg-purple-50/50 transition-all group"
+            >
+              <span className="text-2xl group-hover:scale-110 transition-transform">
+                {shape.icon}
+              </span>
+              <span className="text-[10px] text-gray-500 group-hover:text-purple-600">
+                {shape.name}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // 3) FRAMES VIEW
+  if (view === "frames") {
+    // Group clip frames by category
+    const categories: Record<string, typeof CLIP_FRAME_PRESETS> = {};
+    CLIP_FRAME_PRESETS.forEach(preset => {
+      if (!categories[preset.category]) categories[preset.category] = [];
+      categories[preset.category].push(preset);
+    });
+
+    return (
+      <div className="space-y-4">
+        <Header title="Cadres" />
+
+        {Object.entries(categories).map(([catName, presets]) => (
+          <div key={catName} className="mb-4">
+            <h4 className="text-[11px] font-semibold text-gray-400 mb-2 uppercase">{catName}</h4>
+            <div className="grid grid-cols-3 gap-2">
+              {presets.map((frame) => (
+                <button
+                  key={frame.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/memoriz-clipframe", frame.id);
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                  onClick={() => {
+                    const canvas = editorRef.current?.getCanvas();
+                    if (!canvas) return;
+                    const obj = createClipFrame(canvas, frame);
+                    editorRef.current?.addObject(obj);
+                  }}
+                  className="aspect-square border border-gray-100 bg-gray-50/50 rounded-xl flex items-center justify-center hover:border-blue-400 hover:bg-blue-50/50 transition-all p-2 group"
+                  title={frame.name}
+                >
+                  <svg
+                    viewBox={frame.viewBox || "0 0 100 100"}
+                    className="w-full h-full text-gray-300 drop-shadow-sm group-hover:text-blue-200 transition-colors"
+                    fill="currentColor"
+                  >
+                    <path d={frame.svgPath} />
+                  </svg>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // 4) GRIDS VIEW (Layouts)
+  return (
+    <div className="space-y-5">
+      <Header title="Grilles de mise en page" />
+
+      {/* Standard grids */}
+      {standardLayouts.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 mb-2">Grilles</p>
+          <div className="grid grid-cols-2 gap-2">
+            {standardLayouts.map((layout) => (
+              <LayoutCard key={layout.id} layout={layout} onClick={() => onSelectLayout?.(layout.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mixed layouts */}
+      {mixedLayouts.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 mb-2">Mixtes</p>
+          <div className="grid grid-cols-2 gap-2">
+            {mixedLayouts.map((layout) => (
+              <LayoutCard key={layout.id} layout={layout} onClick={() => onSelectLayout?.(layout.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cover layouts */}
+      {coverLayouts.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 mb-2">Couvertures</p>
+          <div className="grid grid-cols-2 gap-2">
+            {coverLayouts.map((layout) => (
+              <LayoutCard key={layout.id} layout={layout} onClick={() => onSelectLayout?.(layout.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Fabric template layouts */}
+      {fabricLayouts.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 mb-2">Templates thématiques</p>
+          <div className="grid grid-cols-2 gap-2">
+            {fabricLayouts.map((layout) => (
+              <LayoutCard key={layout.id} layout={layout} onClick={() => onSelectLayout?.(layout.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {layouts.length === 0 && (
+        <p className="text-sm text-gray-400 text-center py-4">
+          Aucune mise en page disponible
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Mini layout card with grid preview — draggable onto the Fabric canvas */
+function LayoutCard({ layout, onClick }: { layout: LayoutTemplate; onClick: () => void }) {
+  const cells: GridCell[] = Array.isArray(layout.grid_config) ? layout.grid_config : [];
+  const hasThumbnail = isFabricConfig(layout.grid_config) && layout.thumbnail_url;
+
+  return (
+    <button
+      onClick={onClick}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/memoriz-layout", layout.id);
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+      className="relative aspect-3/4 rounded-lg border-2 border-gray-100 hover:border-purple-400 hover:shadow-md transition-all bg-white overflow-hidden group"
+      title={layout.name}
+    >
+      {hasThumbnail ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={layout.thumbnail_url!}
+          alt={layout.name}
+          className="w-full h-full object-contain"
+        />
+      ) : (
+        <div className="w-full h-full relative p-1">
+          {cells.map((cell, i) => (
+            <div
+              key={i}
+              className="absolute bg-purple-100 border border-purple-200 rounded-sm"
+              style={{
+                left: `${cell.x}%`,
+                top: `${cell.y}%`,
+                width: `${cell.w}%`,
+                height: `${cell.h}%`,
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {/* Label on hover */}
+      <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <span className="text-[9px] font-medium text-white leading-tight line-clamp-2">
+          {layout.name}
+        </span>
+      </div>
+    </button>
   );
 }

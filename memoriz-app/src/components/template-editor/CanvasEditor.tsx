@@ -16,6 +16,7 @@ import * as fabric from "fabric";
 import { createFabricCanvas, enableSnapping } from "@/lib/template-editor/fabric-init";
 import { HistoryManager } from "@/lib/template-editor/history";
 import { loadAllFonts } from "@/lib/template-editor/font-loader";
+import { CLIP_FRAME_PRESETS, createClipFrame } from "@/lib/template-editor/element-presets";
 
 export type CanvasEditorHandle = {
   getCanvas: () => fabric.Canvas | null;
@@ -34,6 +35,7 @@ export type CanvasEditorHandle = {
   zoomFit: () => void;
   setZoom: (z: number) => void;
   getZoom: () => number;
+  getObjects: () => fabric.FabricObject[];
   toJSON: () => string;
   toDataURL: (multiplier?: number) => string;
   loadFromJSON: (json: string) => Promise<void>;
@@ -51,10 +53,13 @@ type Props = {
   onSelectionChange?: (obj: fabric.FabricObject | null) => void;
   onObjectModified?: () => void;
   onCanvasReady?: (canvas: fabric.Canvas) => void;
+  onZoomChange?: (zoom: number) => void;
+  /** Called when a layout card is dropped onto the canvas */
+  onDropLayout?: (layoutId: string) => void;
 };
 
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
-  ({ width, height, onSelectionChange, onObjectModified, onCanvasReady }, ref) => {
+  ({ width, height, onSelectionChange, onObjectModified, onCanvasReady, onZoomChange, onDropLayout }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fabricRef = useRef<fabric.Canvas | null>(null);
     const historyRef = useRef<HistoryManager | null>(null);
@@ -62,6 +67,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const [zoom, setZoomState] = useState(1);
     const [isPanning, setIsPanning] = useState(false);
     const panStart = useRef<{ x: number; y: number } | null>(null);
+
+    /* ── Context Menu State ── */
+    const [contextMenu, setContextMenu] = useState<{
+      x: number;
+      y: number;
+      target: fabric.Group;
+    } | null>(null);
+    const startCropModeRef = useRef<((group: fabric.Group) => void) | null>(null);
 
     /* ── Initialize canvas ── */
     useEffect(() => {
@@ -73,8 +86,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       const canvas = createFabricCanvas(canvasRef.current, width, height);
       fabricRef.current = canvas;
 
-      // Enable snapping
-      enableSnapping(canvas);
+      // Enable snapping (pass page dimensions for accurate edge detection)
+      enableSnapping(canvas, width, height);
 
       // History manager
       const history = new HistoryManager(canvas);
@@ -224,20 +237,26 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         e.preventDefault();
         e.stopPropagation();
 
-        const delta = e.deltaY;
-        let newZoom = canvas.getZoom() * (1 - delta / 500);
-        newZoom = Math.max(0.1, Math.min(5, newZoom));
+        const currentZoom = canvas.getZoom();
+        // Smoother exponential zoom: small steps, consistent feel
+        const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
+        let newZoom = currentZoom * zoomFactor;
+        // Clamp between 25% and 400%
+        newZoom = Math.max(0.25, Math.min(4, newZoom));
+        // Snap to 100% when close
+        if (Math.abs(newZoom - 1) < 0.03) newZoom = 1;
 
         const point = new fabric.Point(e.offsetX, e.offsetY);
         canvas.zoomToPoint(point, newZoom);
         setZoomState(newZoom);
+        onZoomChange?.(newZoom);
       };
 
       canvas.on("mouse:wheel", handleWheel);
       return () => {
         canvas.off("mouse:wheel", handleWheel);
       };
-    }, []);
+    }, [onZoomChange]);
 
     /* ── Pan mode ── */
     useEffect(() => {
@@ -288,6 +307,187 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       };
     }, [isPanning]);
 
+    /* ── Crop Mode (Double Click on Frame) ── */
+    useEffect(() => {
+      const canvas = fabricRef.current;
+      if (!canvas) return;
+
+      let cropState: {
+        group: fabric.Group;
+        img: fabric.FabricImage;
+        cloneImg: fabric.FabricImage;
+        overlay: fabric.FabricObject;
+      } | null = null;
+      let lastClickTime = 0;
+      let lastClickTarget: any = null;
+
+      const startCropMode = (group: fabric.Group) => {
+        const img = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image")) as fabric.FabricImage | undefined;
+        if (!img) return;
+
+        // Clone the image for interactions so the group stays structurally intact
+        img.clone().then((cloneImg: any) => {
+          // calcTransformMatrix() gives the WORLD-space center of the image
+          const imgMatrix = img.calcTransformMatrix();
+          const decomposed = fabric.util.qrDecompose(imgMatrix);
+
+          // translateX/Y from qrDecompose = center of the object in world coords
+          cloneImg.set({
+            originX: "center",
+            originY: "center",
+            left: decomposed.translateX,
+            top: decomposed.translateY,
+            scaleX: decomposed.scaleX,
+            scaleY: decomposed.scaleY,
+            angle: decomposed.angle,
+            opacity: 0.6,
+            selectable: true,
+            hasControls: true,
+            hasBorders: true,
+            evented: true,
+          });
+
+          // Create an overlay so the user sees the frame shape
+          group.clipPath!.clone().then((overlay: any) => {
+            overlay.set({
+              left: group.left,
+              top: group.top,
+              scaleX: group.scaleX,
+              scaleY: group.scaleY,
+              angle: group.angle,
+              originX: group.originX,
+              originY: group.originY,
+              fill: "rgba(0,0,0,0.05)",
+              stroke: "#3b82f6",
+              strokeWidth: 2 / canvas.getZoom(),
+              strokeDashArray: [5, 5],
+              selectable: false,
+              evented: false,
+              absolutePositioned: false,
+            });
+
+            group.visible = false; // Hide the entire intact group
+
+            canvas.add(overlay);
+            canvas.add(cloneImg);
+            canvas.setActiveObject(cloneImg);
+
+            cropState = { group, img, cloneImg, overlay };
+            canvas.requestRenderAll();
+          });
+        });
+      };
+
+      startCropModeRef.current = startCropMode;
+
+      const handleDoubleClick = (opt: fabric.TPointerEventInfo) => {
+        let target = opt.target;
+        if (!target) return;
+
+        // If the user clicked directly on the image inside the group
+        if (target.group && (target.group as any).isImageFrame) {
+          target = target.group;
+        }
+
+        if (target.type === "group" || target.isType?.("group")) {
+          const group = target as fabric.Group;
+
+          // Fallback if isImageFrame is lost during serialization:
+          // A group is an image frame if it has a clipPath and contains an Image object.
+          const img = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image")) as fabric.FabricImage | undefined;
+
+          const isFrameGroup = (group as any).isImageFrame || (group.clipPath && img);
+          if (!isFrameGroup) return;
+
+          startCropMode(group);
+        }
+      };
+
+      const handleMouseDown = (opt: fabric.TPointerEventInfo) => {
+        // Handle Right Click for Context Menu
+        const evt = opt.e as MouseEvent;
+        if (evt && evt.button === 2) {
+          let target = opt.target;
+          if (target && target.group && (target.group as any).isImageFrame) {
+            target = target.group;
+          }
+          if (target && (target.type === "group" || target.isType?.("group"))) {
+            const group = target as fabric.Group;
+            const img = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image"));
+            const isFrameGroup = (group as any).isImageFrame || (group.clipPath && img);
+
+            if (isFrameGroup) {
+              // Show context menu with position (we use DOM coordinates)
+              setContextMenu({ x: evt.clientX, y: evt.clientY, target: group });
+              evt.preventDefault();
+              return;
+            }
+          }
+          setContextMenu(null);
+          return;
+        } else {
+          setContextMenu(null);
+        }
+
+        // Robust Custom Double Click Detection
+        const now = Date.now();
+        const target = opt.target;
+        if (now - lastClickTime < 350 && target === lastClickTarget) {
+          handleDoubleClick(opt);
+        }
+        lastClickTime = now;
+        lastClickTarget = target;
+
+        if (!cropState) return;
+
+        // If they click on anything other than the cloneImg (or its controls), exit crop mode.
+        if (opt.target !== cropState.cloneImg) {
+          const { group, img, cloneImg, overlay } = cropState;
+
+          // *** CRITICAL: read clone's world transform BEFORE removing it ***
+          const cloneWorldMatrix = cloneImg.calcTransformMatrix();
+
+          // Now safe to remove from canvas
+          canvas.remove(overlay);
+          canvas.remove(cloneImg);
+
+          // Convert clone's world position to group-local coordinates
+          const groupInverted = fabric.util.invertTransform(group.calcTransformMatrix());
+          const localMatrix = fabric.util.multiplyTransformMatrices(groupInverted, cloneWorldMatrix);
+          const decomposed = fabric.util.qrDecompose(localMatrix);
+
+          // Apply to original image (keep center/center origin to match how it was created)
+          img.set({
+            originX: "center",
+            originY: "center",
+            left: decomposed.translateX,
+            top: decomposed.translateY,
+            scaleX: decomposed.scaleX,
+            scaleY: decomposed.scaleY,
+            angle: decomposed.angle,
+          });
+
+          // Show the group again (image stays inside, never removed)
+          group.visible = true;
+          group.set('dirty', true);
+          img.set('dirty', true);
+
+          canvas.setActiveObject(group);
+          cropState = null;
+          historyRef.current?.saveState();
+          canvas.requestRenderAll();
+        }
+      };
+
+      canvas.on("mousedblclick" as keyof fabric.CanvasEvents, handleDoubleClick);
+      canvas.on("mouse:down", handleMouseDown);
+
+      return () => {
+        canvas.off("mousedblclick" as keyof fabric.CanvasEvents, handleDoubleClick);
+        canvas.off("mouse:down", handleMouseDown);
+      };
+    }, [setContextMenu]);
+
     /* ── Imperative methods ── */
     const deleteSelected = useCallback(() => {
       const canvas = fabricRef.current;
@@ -330,6 +530,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     useImperativeHandle(ref, () => ({
       getCanvas: () => fabricRef.current,
       getHistory: () => historyRef.current,
+      getObjects: () => {
+        const canvas = fabricRef.current;
+        if (!canvas) return [];
+        return canvas.getObjects().filter((o) => !o.excludeFromExport);
+      },
       addObject: (obj: fabric.FabricObject) => {
         const canvas = fabricRef.current;
         if (!canvas) return;
@@ -408,16 +613,18 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       zoomIn: () => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        const z = Math.min(canvas.getZoom() * 1.2, 5);
+        const z = Math.min(canvas.getZoom() * 1.15, 4);
         canvas.setZoom(z);
         setZoomState(z);
+        onZoomChange?.(z);
       },
       zoomOut: () => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        const z = Math.max(canvas.getZoom() / 1.2, 0.1);
+        const z = Math.max(canvas.getZoom() / 1.15, 0.25);
         canvas.setZoom(z);
         setZoomState(z);
+        onZoomChange?.(z);
       },
       zoomFit: () => {
         const canvas = fabricRef.current;
@@ -441,18 +648,21 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         }
         canvas.requestRenderAll();
         setZoomState(z);
+        onZoomChange?.(z);
       },
       setZoom: (z: number) => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        canvas.setZoom(z);
-        setZoomState(z);
+        const clamped = Math.max(0.25, Math.min(4, z));
+        canvas.setZoom(clamped);
+        setZoomState(clamped);
+        onZoomChange?.(clamped);
       },
       getZoom: () => zoom,
       toJSON: () => {
         const canvas = fabricRef.current;
-        if (!canvas) return "{}";
-        return JSON.stringify(canvas.toJSON());
+        if (!canvas) return "";
+        return JSON.stringify((canvas as any).toJSON(['name', 'id', 'isImageFrame', 'isFrameImage', 'originalFrameId']));
       },
       toDataURL: (multiplier = 2) => {
         const canvas = fabricRef.current;
@@ -471,9 +681,15 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       loadFromJSON: async (json: string) => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        await canvas.loadFromJSON(json);
-        canvas.requestRenderAll();
-        historyRef.current?.clear();
+        try {
+          await canvas.loadFromJSON(json);
+          // Verify canvas is still current (React Strict Mode may have disposed it)
+          if (fabricRef.current !== canvas) return;
+          canvas.requestRenderAll();
+          historyRef.current?.clear();
+        } catch (err) {
+          console.warn("[CanvasEditor] loadFromJSON failed (canvas may have been disposed):", err);
+        }
       },
       setBackgroundColor: (color: string) => {
         const canvas = fabricRef.current;
@@ -524,7 +740,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       },
     }));
 
-    /* ── Drop handler: accept images dragged from the sidebar ── */
+    /* ── Drop handler: accept layouts and images dragged from the sidebar ── */
     const handleDragOver = useCallback((e: React.DragEvent) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
@@ -533,11 +749,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const handleDrop = useCallback(
       async (e: React.DragEvent) => {
         e.preventDefault();
-        // Only handle memoriz image drops (not file drops)
-        const url =
-          e.dataTransfer.getData("application/x-memoriz-image") ||
-          e.dataTransfer.getData("text/plain");
-        if (!url || !url.startsWith("http")) return;
+
+        /* ── Case 1: Layout card dropped onto canvas ── */
+        const layoutId = e.dataTransfer.getData("application/memoriz-layout");
+        if (layoutId) {
+          onDropLayout?.(layoutId);
+          return;
+        }
 
         const canvas = fabricRef.current;
         if (!canvas) return;
@@ -549,7 +767,195 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const z = canvas.getZoom();
         const canvasX = (e.clientX - rect.left - vpt[4]) / z;
         const canvasY = (e.clientY - rect.top - vpt[5]) / z;
+        const dropPoint = new fabric.Point(canvasX, canvasY);
 
+        /* ── Case 1.5: Clip Frame dropped onto canvas ── */
+        const frameId = e.dataTransfer.getData("application/memoriz-clipframe");
+        if (frameId) {
+          const preset = CLIP_FRAME_PRESETS.find(f => f.id === frameId);
+          if (preset) {
+            const frameObj = createClipFrame(canvas, preset);
+
+            // Re-center around drop point
+            const bbox = frameObj.getBoundingRect();
+            frameObj.set({
+              left: canvasX - bbox.width / 2,
+              top: canvasY - bbox.height / 2,
+            });
+
+            canvas.add(frameObj);
+            canvas.setActiveObject(frameObj);
+            canvas.requestRenderAll();
+            historyRef.current?.saveState();
+            onObjectModified?.();
+          }
+          return;
+        }
+
+        /* ── Case 2: Image dropped from sidebar ── */
+        const url =
+          e.dataTransfer.getData("application/x-memoriz-image") ||
+          e.dataTransfer.getData("text/plain");
+        if (!url || !url.startsWith("http")) return;
+
+        // Check if drop is over a grid cell or a clip frame
+        // Reverse so we check top-most objects first
+        const dropTarget = canvas.getObjects().slice().reverse().find((obj) => {
+          const objName = (obj as unknown as { name?: string }).name;
+          const isGrid = objName === "grid-placeholder" || objName === "grid-image";
+          const isFrame = (obj as any).isImageFrame === true;
+          if (!isGrid && !isFrame) return false;
+          return obj.containsPoint(dropPoint);
+        });
+
+        if (dropTarget) {
+          const isFrame = (dropTarget as any).isImageFrame === true;
+          const targetName = (dropTarget as unknown as { name?: string }).name;
+
+          try {
+            const img = await fabric.FabricImage.fromURL(url, {
+              crossOrigin: "anonymous",
+            });
+            const imgW = img.width || 1;
+            const imgH = img.height || 1;
+
+            if (isFrame) {
+              /* ── Photo dropped into a Canvas Frame (Blob, Shape, etc) ── */
+              const bbox = dropTarget.getBoundingRect();
+              const groupScaleX = dropTarget.scaleX || 1;
+              const groupScaleY = dropTarget.scaleY || 1;
+              const frameW = dropTarget.width || 1;
+              const frameH = dropTarget.height || 1;
+
+              // Calculate scale to cover the frame bounding box
+              const scale = Math.max(bbox.width / imgW, bbox.height / imgH);
+              const innerScaleX = scale / groupScaleX;
+              const innerScaleY = scale / groupScaleY;
+
+              img.set({
+                left: 0,
+                top: 0,
+                originX: "center",
+                originY: "center",
+                scaleX: innerScaleX,
+                scaleY: innerScaleY,
+              });
+              (img as any).isFrameImage = true;
+
+              if (dropTarget.type === "group" || dropTarget.isType?.("group")) {
+                // Already a frame group, replace the image
+                const group = dropTarget as fabric.Group;
+                const oldImg = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image"));
+                if (oldImg) {
+                  group.remove(oldImg);
+                }
+                group.add(img);
+                canvas.setActiveObject(group);
+                canvas.requestRenderAll();
+                historyRef.current?.saveState();
+                onObjectModified?.();
+              } else {
+                // Empty frame (fabric.Path)
+                dropTarget.clone().then((clipPathObj: fabric.FabricObject) => {
+                  clipPathObj.set({
+                    left: 0,
+                    top: 0,
+                    originX: "center",
+                    originY: "center",
+                    absolutePositioned: false,
+                    scaleX: 1,
+                    scaleY: 1,
+                    angle: 0,
+                  });
+
+                  // We must ensure the group center corresponds to the path's visual center
+                  const leftPos = dropTarget.left! + (frameW * groupScaleX) / 2;
+                  const topPos = dropTarget.top! + (frameH * groupScaleY) / 2;
+
+                  const group = new fabric.Group([img], {
+                    left: leftPos,
+                    top: topPos,
+                    originX: "center",
+                    originY: "center",
+                    scaleX: groupScaleX,
+                    scaleY: groupScaleY,
+                    angle: dropTarget.angle,
+                    clipPath: clipPathObj,
+                    name: targetName,
+                  });
+
+                  (group as any).isImageFrame = true;
+                  (group as any).originalFrameId = (dropTarget as any).originalFrameId;
+
+                  const idx = canvas.getObjects().indexOf(dropTarget);
+                  canvas.remove(dropTarget);
+                  canvas.insertAt(idx, group);
+                  canvas.setActiveObject(group);
+                  canvas.requestRenderAll();
+                  historyRef.current?.saveState();
+                  onObjectModified?.();
+                });
+              }
+
+            } else {
+              /* ── Photo dropped into a grid cell ── */
+              let cellLeft: number, cellTop: number, cellWidth: number, cellHeight: number;
+
+              if (targetName === "grid-placeholder") {
+                cellLeft = dropTarget.left ?? 0;
+                cellTop = dropTarget.top ?? 0;
+                cellWidth = dropTarget.width ?? 1;
+                cellHeight = dropTarget.height ?? 1;
+              } else if (dropTarget.clipPath) {
+                cellLeft = dropTarget.clipPath.left ?? 0;
+                cellTop = dropTarget.clipPath.top ?? 0;
+                cellWidth = dropTarget.clipPath.width ?? 1;
+                cellHeight = dropTarget.clipPath.height ?? 1;
+              } else {
+                const sw = (dropTarget.width ?? 0) * (dropTarget.scaleX ?? 1);
+                const sh = (dropTarget.height ?? 0) * (dropTarget.scaleY ?? 1);
+                cellLeft = (dropTarget.left ?? 0) - sw / 2;
+                cellTop = (dropTarget.top ?? 0) - sh / 2;
+                cellWidth = sw;
+                cellHeight = sh;
+              }
+
+              const scaleX = cellWidth / imgW;
+              const scaleY = cellHeight / imgH;
+              const scale = Math.max(scaleX, scaleY);
+
+              img.set({
+                left: cellLeft + cellWidth / 2,
+                top: cellTop + cellHeight / 2,
+                originX: "center",
+                originY: "center",
+                scaleX: scale,
+                scaleY: scale,
+                clipPath: new fabric.Rect({
+                  left: cellLeft,
+                  top: cellTop,
+                  width: cellWidth,
+                  height: cellHeight,
+                  absolutePositioned: true,
+                }),
+                name: "grid-image",
+              });
+
+              const idx = canvas.getObjects().indexOf(dropTarget);
+              canvas.remove(dropTarget);
+              canvas.insertAt(idx, img);
+              canvas.setActiveObject(img);
+              canvas.requestRenderAll();
+              historyRef.current?.saveState();
+              onObjectModified?.();
+            }
+          } catch (err) {
+            console.error("Error dropping image into target:", err);
+          }
+          return;
+        }
+
+        /* ── Free drop (no grid cell at this position) ── */
         try {
           const img = await fabric.FabricImage.fromURL(url, {
             crossOrigin: "anonymous",
@@ -576,7 +982,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           console.error("Error dropping image:", err);
         }
       },
-      [onObjectModified]
+      [onObjectModified, onDropLayout]
     );
 
     return (
@@ -599,10 +1005,41 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         >
           <canvas ref={canvasRef} />
         </div>
+        {/* Right-click Context Menu */}
+        {contextMenu && (
+          <div
+            className="fixed z-[200] bg-white rounded-lg shadow-xl border border-gray-200 py-2 w-48"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onMouseLeave={() => setContextMenu(null)}
+          >
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+              onClick={() => {
+                const canvas = fabricRef.current;
+                if (!canvas) return;
+
+                // Discard context menu
+                setContextMenu(null);
+
+                // Active object for visual feedback
+                canvas.setActiveObject(contextMenu.target);
+
+                // Start crop mode using our ref
+                if (startCropModeRef.current) {
+                  startCropModeRef.current(contextMenu.target);
+                }
+              }}
+            >
+              <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16h16M4 20h16M4 8h16M4 4h16" />
+              </svg>
+              Recadrer l'image
+            </button>
+          </div>
+        )}
       </div>
     );
-  }
-);
+  });
 
 CanvasEditor.displayName = "CanvasEditor";
 export default CanvasEditor;
