@@ -114,6 +114,9 @@ type Props = {
   onTemplateSaved?: () => void;
   /** Called after a page's fabric_json is saved */
   onPageSaved?: () => void;
+  /** Page navigation callbacks */
+  onNextPage?: () => void;
+  onPrevPage?: () => void;
 };
 
 export default function TemplateEditorModal({
@@ -129,6 +132,8 @@ export default function TemplateEditorModal({
   onClose,
   onTemplateSaved,
   onPageSaved,
+  onNextPage,
+  onPrevPage,
 }: Props) {
   const { isSuperAdmin } = useAuth();
   const isPageMode = !!pageId;
@@ -632,6 +637,8 @@ export default function TemplateEditorModal({
             bumpLayers();
             triggerAutoSave();
           }}
+          onNextPage={onNextPage}
+          onPrevPage={onPrevPage}
         />
 
         {/* Right panel: properties + layers */}

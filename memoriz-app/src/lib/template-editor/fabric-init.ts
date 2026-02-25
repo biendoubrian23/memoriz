@@ -27,7 +27,7 @@ export function createFabricCanvas(
   const canvas = new fabric.Canvas(canvasEl, {
     width,
     height,
-    backgroundColor: "#ffffff",
+    backgroundColor: "transparent",
     selection: true,
     preserveObjectStacking: true,
     controlsAboveOverlay: true,
@@ -53,8 +53,8 @@ export function createFabricCanvas(
   let hoveredObject: fabric.FabricObject | null = null;
 
   canvas.on("mouse:over", (e) => {
-    // Only highlight if not currently selected
-    if (e.target && !canvas.getActiveObjects().includes(e.target)) {
+    // Only highlight if not currently selected and not the page rect
+    if (e.target && !canvas.getActiveObjects().includes(e.target) && !(e.target as any).__isPageRect) {
       hoveredObject = e.target;
       canvas.requestRenderAll();
     }
@@ -84,7 +84,14 @@ export function createFabricCanvas(
     if (hoveredObject && !canvas.getActiveObjects().includes(hoveredObject)) {
       ctx.save();
       const obj = hoveredObject;
+      const vpt = canvas.viewportTransform;
       const m = obj.calcTransformMatrix();
+
+      // Apply viewport transform (zoom/pan) first
+      if (vpt) {
+        ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+      }
+      // Then apply object's local transform
       ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
 
       const w = obj.width ?? 0;
@@ -100,6 +107,62 @@ export function createFabricCanvas(
   });
 
   return canvas;
+}
+
+/** Draw dashed crop/bleed lines on the page edges when objects overflow.
+ *  This gives users a visual cue of what will be cut off during export.
+ */
+export function enableBleedIndicators(
+  canvas: fabric.Canvas,
+  pageWidth: number,
+  pageHeight: number,
+) {
+  canvas.on("after:render", (opt) => {
+    const ctx = opt.ctx;
+    const vpt = canvas.viewportTransform;
+    if (!vpt) return;
+
+    // Check if any non-page object overflows the page
+    let hasOverflow = false;
+    for (const obj of canvas.getObjects()) {
+      if ((obj as any).__isPageRect || obj.excludeFromExport) continue;
+      const bounds = obj.getBoundingRect();
+      if (bounds.left < 0 || bounds.top < 0 ||
+        bounds.left + bounds.width > pageWidth ||
+        bounds.top + bounds.height > pageHeight) {
+        hasOverflow = true;
+        break;
+      }
+    }
+
+    if (!hasOverflow) return;
+
+    ctx.save();
+    // Apply viewport transform
+    ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+
+    const z = canvas.getZoom();
+    const dashLen = 6 / z;
+    const lw = 1.5 / z;
+
+    ctx.setLineDash([dashLen, dashLen]);
+    ctx.lineWidth = lw;
+    ctx.strokeStyle = "rgba(239, 68, 68, 0.7)"; // Tailwind red-500 with alpha
+
+    // Draw 4 edge lines of the page
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(pageWidth, 0);
+    ctx.moveTo(pageWidth, 0);
+    ctx.lineTo(pageWidth, pageHeight);
+    ctx.moveTo(pageWidth, pageHeight);
+    ctx.lineTo(0, pageHeight);
+    ctx.moveTo(0, pageHeight);
+    ctx.lineTo(0, 0);
+    ctx.stroke();
+
+    ctx.restore();
+  });
 }
 
 /** Add snapping guidelines to canvas.

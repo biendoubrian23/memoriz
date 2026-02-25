@@ -330,12 +330,12 @@ function CreerWizard() {
 
       // Create initial pages: cover + 4 content + back cover
       const initialPages = [
-        { project_id: project.id, page_number: 0, page_type: "cover", layout_id: "cover-full" },
-        { project_id: project.id, page_number: 1, page_type: "content", layout_id: "1-full" },
+        { project_id: project.id, page_number: 0, page_type: "cover", layout_id: null },
+        { project_id: project.id, page_number: 1, page_type: "content", layout_id: null },
         { project_id: project.id, page_number: 2, page_type: "content", layout_id: "2-horizontal" },
         { project_id: project.id, page_number: 3, page_type: "content", layout_id: "4-grid" },
-        { project_id: project.id, page_number: 4, page_type: "content", layout_id: "1-full" },
-        { project_id: project.id, page_number: 5, page_type: "back_cover", layout_id: "cover-centered" },
+        { project_id: project.id, page_number: 4, page_type: "content", layout_id: null },
+        { project_id: project.id, page_number: 5, page_type: "back_cover", layout_id: null },
       ];
 
       await supabase.from("project_pages").insert(initialPages);
@@ -348,7 +348,7 @@ function CreerWizard() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
       console.error("Error creating project:", msg, err);
-      
+
       // If the error is a foreign key / auth issue, the session is stale
       // → save config and show connect prompt so user can re-authenticate
       localStorage.setItem("memoriz_pending_config", JSON.stringify(config));
@@ -372,7 +372,7 @@ function CreerWizard() {
       if (user) {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
-        
+
         if (session) {
           // Session valid → create project
           createProjectAndRedirect(selections);
@@ -516,13 +516,12 @@ function CreerWizard() {
             {steps.map((s, i) => (
               <div key={s.key} className="flex items-center flex-1 last:flex-initial">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300 ${
-                    i < currentStep
+                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300 ${i < currentStep
                       ? "bg-primary text-white"
                       : i === currentStep
-                      ? "bg-primary text-white shadow-lg shadow-primary/30 scale-110"
-                      : "bg-gray-100 text-gray-400"
-                  }`}
+                        ? "bg-primary text-white shadow-lg shadow-primary/30 scale-110"
+                        : "bg-gray-100 text-gray-400"
+                    }`}
                 >
                   {i < currentStep ? (
                     <Check className="w-5 h-5" />
@@ -533,9 +532,8 @@ function CreerWizard() {
                 {i < steps.length - 1 && (
                   <div className="flex-1 h-1 mx-2">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        i < currentStep ? "bg-primary" : "bg-gray-100"
-                      }`}
+                      className={`h-full rounded-full transition-all duration-500 ${i < currentStep ? "bg-primary" : "bg-gray-100"
+                        }`}
                     />
                   </div>
                 )}
@@ -546,9 +544,8 @@ function CreerWizard() {
             {steps.map((s, i) => (
               <span
                 key={s.key}
-                className={`text-xs font-medium transition-colors ${
-                  i <= currentStep ? "text-dark" : "text-gray-300"
-                } ${i === 0 ? "text-left" : i === steps.length - 1 ? "text-right" : "text-center"}`}
+                className={`text-xs font-medium transition-colors ${i <= currentStep ? "text-dark" : "text-gray-300"
+                  } ${i === 0 ? "text-left" : i === steps.length - 1 ? "text-right" : "text-center"}`}
                 style={{ width: `${100 / steps.length}%` }}
               >
                 {s.label}
@@ -559,140 +556,134 @@ function CreerWizard() {
 
         {/* Main content */}
         <div>
-            {/* Step header */}
-            <div className="text-center mb-10">
-              <p className="text-sm text-medium-gray font-medium mb-2">
-                Étape {currentStep + 1} sur {steps.length}
-              </p>
-              <h1 className="text-3xl sm:text-4xl font-bold text-dark mb-3">
-                {step.title}
-              </h1>
-              <p className="text-medium-gray text-lg">{step.subtitle}</p>
-            </div>
+          {/* Step header */}
+          <div className="text-center mb-10">
+            <p className="text-sm text-medium-gray font-medium mb-2">
+              Étape {currentStep + 1} sur {steps.length}
+            </p>
+            <h1 className="text-3xl sm:text-4xl font-bold text-dark mb-3">
+              {step.title}
+            </h1>
+            <p className="text-medium-gray text-lg">{step.subtitle}</p>
+          </div>
 
-            {/* Options grid */}
-            <div
-              className={`grid gap-4 mb-12 ${
-                step.options.length <= 2
-                  ? "grid-cols-1 sm:grid-cols-2 max-w-2xl mx-auto"
-                  : step.options.length <= 3
+          {/* Options grid */}
+          <div
+            className={`grid gap-4 mb-12 ${step.options.length <= 2
+                ? "grid-cols-1 sm:grid-cols-2 max-w-2xl mx-auto"
+                : step.options.length <= 3
                   ? "grid-cols-1 sm:grid-cols-3"
                   : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
               }`}
-            >
-              {step.options.map((option) => {
-                const isSelected = currentSelected === option.slug;
-                return (
-                  <button
-                    key={option.slug}
-                    onClick={() => handleSelect(option.slug)}
-                    className={`relative group text-left rounded-2xl border-2 p-5 transition-all duration-300 hover:shadow-lg ${
-                      isSelected
-                        ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-                        : "border-gray-100 bg-white hover:border-gray-200"
+          >
+            {step.options.map((option) => {
+              const isSelected = currentSelected === option.slug;
+              return (
+                <button
+                  key={option.slug}
+                  onClick={() => handleSelect(option.slug)}
+                  className={`relative group text-left rounded-2xl border-2 p-5 transition-all duration-300 hover:shadow-lg ${isSelected
+                      ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
+                      : "border-gray-100 bg-white hover:border-gray-200"
                     }`}
-                  >
-                    {/* Recommended badge */}
-                    {option.recommended && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-primary text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full whitespace-nowrap">
-                        Recommandé
-                      </div>
-                    )}
-
-                    {/* Check badge — z-20 to stay above image */}
-                    <div
-                      className={`absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center transition-all z-20 ${
-                        isSelected
-                          ? "bg-primary text-white scale-100 shadow-md"
-                          : "bg-white/80 backdrop-blur text-transparent scale-75 border border-gray-200"
-                      }`}
-                    >
-                      <Check className="w-4 h-4" />
+                >
+                  {/* Recommended badge */}
+                  {option.recommended && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-primary text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full whitespace-nowrap">
+                      Recommandé
                     </div>
+                  )}
 
-                    {/* Image / Gradient / Icon */}
-                    {option.image ? (
-                      <div className={`w-full rounded-xl bg-gray-50 mb-3 overflow-hidden relative ${step.options.length > 3 ? "aspect-square" : "h-36"}`}>
-                        <Image
-                          src={option.image}
-                          alt={option.name}
-                          fill
-                          className="object-cover"
-                          sizes="(max-width: 640px) 50vw, 20vw"
-                        />
-                      </div>
-                    ) : option.gradient ? (
-                      <div
-                        className={`w-full rounded-xl mb-3 ${step.options.length > 3 ? "aspect-square" : "h-36"} ${option.gradient}`}
+                  {/* Check badge — z-20 to stay above image */}
+                  <div
+                    className={`absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center transition-all z-20 ${isSelected
+                        ? "bg-primary text-white scale-100 shadow-md"
+                        : "bg-white/80 backdrop-blur text-transparent scale-75 border border-gray-200"
+                      }`}
+                  >
+                    <Check className="w-4 h-4" />
+                  </div>
+
+                  {/* Image / Gradient / Icon */}
+                  {option.image ? (
+                    <div className={`w-full rounded-xl bg-gray-50 mb-3 overflow-hidden relative ${step.options.length > 3 ? "aspect-square" : "h-36"}`}>
+                      <Image
+                        src={option.image}
+                        alt={option.name}
+                        fill
+                        className="object-cover"
+                        sizes="(max-width: 640px) 50vw, 20vw"
                       />
-                    ) : (
-                      <div
-                        className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 transition-colors ${
-                          isSelected
-                            ? "bg-primary/10 text-primary"
-                            : "bg-gray-50 text-gray-400 group-hover:text-gray-600"
+                    </div>
+                  ) : option.gradient ? (
+                    <div
+                      className={`w-full rounded-xl mb-3 ${step.options.length > 3 ? "aspect-square" : "h-36"} ${option.gradient}`}
+                    />
+                  ) : (
+                    <div
+                      className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 transition-colors ${isSelected
+                          ? "bg-primary/10 text-primary"
+                          : "bg-gray-50 text-gray-400 group-hover:text-gray-600"
                         }`}
-                      >
-                        {step.icon}
-                      </div>
-                    )}
+                    >
+                      {step.icon}
+                    </div>
+                  )}
 
-                    <h3 className={`font-bold text-dark mb-0.5 ${step.options.length > 3 ? "text-sm" : "text-base"}`}>
-                      {option.name}
-                    </h3>
-                    {option.subtitle && (
-                      <p className="text-xs font-medium text-primary/70 mb-1">
-                        {option.subtitle}
-                      </p>
-                    )}
-                    {step.options.length <= 3 && (
-                      <p className="text-xs text-medium-gray leading-relaxed">
-                        {option.description}
-                      </p>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between">
-              <button
-                onClick={handleBack}
-                disabled={currentStep === 0}
-                className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium transition-all ${
-                  currentStep === 0
-                    ? "text-gray-300 cursor-not-allowed"
-                    : "text-dark hover:bg-gray-100"
-                }`}
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Retour
-              </button>
-
-              <button
-                onClick={handleNext}
-                disabled={!currentSelected}
-                className={`flex items-center gap-2 px-8 py-3.5 rounded-full font-semibold transition-all ${
-                  currentSelected
-                    ? "bg-primary text-white hover:bg-primary-dark shadow-md hover:shadow-lg"
-                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                }`}
-              >
-                {currentStep === steps.length - 1 ? (
-                  <>
-                    Commencer la création
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                ) : (
-                  <>
-                    Continuer
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
+                  <h3 className={`font-bold text-dark mb-0.5 ${step.options.length > 3 ? "text-sm" : "text-base"}`}>
+                    {option.name}
+                  </h3>
+                  {option.subtitle && (
+                    <p className="text-xs font-medium text-primary/70 mb-1">
+                      {option.subtitle}
+                    </p>
+                  )}
+                  {step.options.length <= 3 && (
+                    <p className="text-xs text-medium-gray leading-relaxed">
+                      {option.description}
+                    </p>
+                  )}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Navigation */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handleBack}
+              disabled={currentStep === 0}
+              className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium transition-all ${currentStep === 0
+                  ? "text-gray-300 cursor-not-allowed"
+                  : "text-dark hover:bg-gray-100"
+                }`}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Retour
+            </button>
+
+            <button
+              onClick={handleNext}
+              disabled={!currentSelected}
+              className={`flex items-center gap-2 px-8 py-3.5 rounded-full font-semibold transition-all ${currentSelected
+                  ? "bg-primary text-white hover:bg-primary-dark shadow-md hover:shadow-lg"
+                  : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                }`}
+            >
+              {currentStep === steps.length - 1 ? (
+                <>
+                  Commencer la création
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  Continuer
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </div>
+        </div>
 
       </div>
     </div>

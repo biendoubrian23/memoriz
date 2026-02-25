@@ -164,7 +164,7 @@ export default function EditorPage() {
 
             // Add cover if missing
             if (!hasCover) {
-              toInsert.push({ project_id: projectId, page_number: 0, page_type: "cover", layout_id: "cover-full", background_color: "#FFFFFF" });
+              toInsert.push({ project_id: projectId, page_number: 0, page_type: "cover", layout_id: null, background_color: "#FFFFFF" });
             }
 
             if (missingContent > 0) {
@@ -185,7 +185,7 @@ export default function EditorPage() {
                     project_id: projectId,
                     page_number: n,
                     page_type: "content",
-                    layout_id: "1-full",
+                    layout_id: null,
                     background_color: "#FFFFFF",
                   });
                   added++;
@@ -209,7 +209,7 @@ export default function EditorPage() {
                 project_id: projectId,
                 page_number: 27,
                 page_type: "back_cover",
-                layout_id: "cover-centered",
+                layout_id: null,
                 background_color: "#FFFFFF",
               });
             }
@@ -226,10 +226,23 @@ export default function EditorPage() {
           }
         }
 
-        const pagesWithElements = pagesData.map((p) => ({
-          ...p,
-          elements: p.page_elements ?? [],
-        }));
+        const pagesWithElements = pagesData.map((p) => {
+          // Retro-compatibility: if an old page has "1-full" or "cover-full" but no elements,
+          // treat it as blank to avoid showing a giant gray rectangle to the user.
+          let layoutId = p.layout_id;
+          if (
+            (layoutId === "1-full" || layoutId === "cover-full" || layoutId === "cover-centered") &&
+            (!p.page_elements || p.page_elements.length === 0)
+          ) {
+            layoutId = null;
+          }
+
+          return {
+            ...p,
+            layout_id: layoutId,
+            elements: p.page_elements ?? [],
+          };
+        });
         setPages(pagesWithElements);
       }
       if (layoutsRes.data) {
@@ -321,14 +334,14 @@ export default function EditorPage() {
           project_id: projectId,
           page_number: backCoverPage.page_number,
           page_type: "content",
-          layout_id: "1-full",
+          layout_id: null,
           background_color: "#FFFFFF",
         },
         {
           project_id: projectId,
           page_number: backCoverPage.page_number + 1,
           page_type: "content",
-          layout_id: "1-full",
+          layout_id: null,
           background_color: "#FFFFFF",
         },
       ]);
@@ -336,8 +349,8 @@ export default function EditorPage() {
       // No back cover — just append 2 content pages
       const maxNum = pages.length > 0 ? Math.max(...pages.map((p) => p.page_number)) : 0;
       await supabase.from("project_pages").insert([
-        { project_id: projectId, page_number: maxNum + 1, page_type: "content", layout_id: "1-full", background_color: "#FFFFFF" },
-        { project_id: projectId, page_number: maxNum + 2, page_type: "content", layout_id: "1-full", background_color: "#FFFFFF" },
+        { project_id: projectId, page_number: maxNum + 1, page_type: "content", layout_id: null, background_color: "#FFFFFF" },
+        { project_id: projectId, page_number: maxNum + 2, page_type: "content", layout_id: null, background_color: "#FFFFFF" },
       ]);
     }
 
@@ -909,6 +922,7 @@ export default function EditorPage() {
 
         return (
           <TemplateEditorModal
+            key={pg.id}
             pageId={pg.id}
             initialFabricJSON={initialJSON}
             pageDimensions={pageDims}
@@ -925,6 +939,12 @@ export default function EditorPage() {
             onPageSaved={() => {
               loadProject();
             }}
+            onPrevPage={fabricEditorPageIndex > 0 ? () => {
+              setFabricEditorPageIndex(fabricEditorPageIndex - 1);
+            } : undefined}
+            onNextPage={fabricEditorPageIndex < pages.length - 1 ? () => {
+              setFabricEditorPageIndex(fabricEditorPageIndex + 1);
+            } : undefined}
           />
         );
       })()}

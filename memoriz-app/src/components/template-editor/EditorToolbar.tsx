@@ -7,8 +7,6 @@
 import {
   Undo2,
   Redo2,
-  ZoomIn,
-  ZoomOut,
   Maximize2,
   Copy,
   Trash2,
@@ -70,9 +68,10 @@ export default function EditorToolbar({
   const zoomPercent = Math.round(zoom * 100);
 
   return (
-    <div className="h-14 bg-white border-b border-gray-200 flex items-center px-4 gap-2 shrink-0 z-10">
-      {/* Template name */}
-      <div className="flex items-center gap-2 min-w-0 mr-4">
+    <div className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-10 w-full shrink-0">
+
+      {/* Left side: Template name */}
+      <div className="flex items-center gap-2 flex-1 min-w-0">
         {editingName ? (
           <input
             autoFocus
@@ -85,7 +84,7 @@ export default function EditorToolbar({
         ) : (
           <button
             onClick={() => setEditingName(true)}
-            className="text-sm font-semibold text-gray-700 truncate max-w-52 hover:text-purple-600 transition-colors"
+            className="text-sm font-semibold text-gray-700 truncate max-w-52 hover:text-purple-600 transition-colors text-left"
             title="Cliquer pour renommer"
           >
             {templateName || "Sans titre"}
@@ -93,118 +92,128 @@ export default function EditorToolbar({
         )}
       </div>
 
-      {/* Divider */}
-      <div className="w-px h-8 bg-gray-200" />
+      {/* Center side: Tools */}
+      <div className="flex items-center gap-2 justify-center shrink-0">
+        {/* Undo / Redo */}
+        <ToolButton icon={Undo2} label="Annuler (Ctrl+Z)" onClick={onUndo} disabled={!canUndo} />
+        <ToolButton icon={Redo2} label="Rétablir (Ctrl+Y)" onClick={onRedo} disabled={!canRedo} />
 
-      {/* Undo / Redo */}
-      <ToolButton icon={Undo2} label="Annuler (Ctrl+Z)" onClick={onUndo} disabled={!canUndo} />
-      <ToolButton icon={Redo2} label="Rétablir (Ctrl+Y)" onClick={onRedo} disabled={!canRedo} />
+        <div className="w-px h-6 bg-gray-200 mx-1" />
 
-      <div className="w-px h-8 bg-gray-200" />
+        {/* Zoom slider (Canva-style) */}
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min={10}
+            max={400}
+            value={zoomPercent}
+            onChange={(e) => {
+              const val = Number(e.target.value) / 100;
+              editorRef.current?.setZoom(val);
+            }}
+            className="w-24 h-1 accent-gray-500 cursor-pointer appearance-none bg-gray-200 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gray-500 [&::-webkit-slider-thumb]:cursor-pointer hover:[&::-webkit-slider-thumb]:bg-gray-700 [&::-webkit-slider-thumb]:transition-colors"
+            title={`Zoom: ${zoomPercent}%`}
+          />
+          <span className="text-xs font-medium text-gray-500 w-10 text-right tabular-nums select-none">
+            {zoomPercent} %
+          </span>
+        </div>
+        <ToolButton icon={Maximize2} label="Ajuster" onClick={() => editorRef.current?.zoomFit()} />
 
-      {/* Zoom controls */}
-      <ToolButton icon={ZoomOut} label="Dézoomer" onClick={() => editorRef.current?.zoomOut()} />
-      <span className="text-xs font-medium text-gray-500 w-12 text-center tabular-nums">
-        {zoomPercent}%
-      </span>
-      <ToolButton icon={ZoomIn} label="Zoomer" onClick={() => editorRef.current?.zoomIn()} />
-      <ToolButton icon={Maximize2} label="Ajuster" onClick={() => editorRef.current?.zoomFit()} />
+        {/* Object controls (visible when selected) */}
+        {selectedObject && (
+          <>
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+            <ToolButton icon={Copy} label="Dupliquer (Ctrl+D)" onClick={() => editorRef.current?.duplicateSelected()} />
+            <ToolButton icon={Trash2} label="Supprimer" onClick={() => editorRef.current?.deleteSelected()} className="text-red-500 hover:bg-red-50" />
 
-      <div className="w-px h-8 bg-gray-200" />
+            <div className="w-px h-6 bg-gray-200 mx-1" />
 
-      {/* Object controls (visible when selected) */}
-      {selectedObject && (
-        <>
-          <ToolButton icon={Copy} label="Dupliquer (Ctrl+D)" onClick={() => editorRef.current?.duplicateSelected()} />
-          <ToolButton icon={Trash2} label="Supprimer" onClick={() => editorRef.current?.deleteSelected()} className="text-red-500 hover:bg-red-50" />
+            {/* Z-index */}
+            <ToolButton icon={ChevronsUp} label="Premier plan" onClick={() => editorRef.current?.bringToFront()} />
+            <ToolButton icon={ArrowUp} label="Monter" onClick={() => editorRef.current?.bringForward()} />
+            <ToolButton icon={ArrowDown} label="Descendre" onClick={() => editorRef.current?.sendBackward()} />
+            <ToolButton icon={ChevronsDown} label="Arrière-plan" onClick={() => editorRef.current?.sendToBack()} />
 
-          <div className="w-px h-8 bg-gray-200" />
+            <div className="w-px h-6 bg-gray-200 mx-1" />
 
-          {/* Z-index */}
-          <ToolButton icon={ChevronsUp} label="Premier plan" onClick={() => editorRef.current?.bringToFront()} />
-          <ToolButton icon={ArrowUp} label="Monter" onClick={() => editorRef.current?.bringForward()} />
-          <ToolButton icon={ArrowDown} label="Descendre" onClick={() => editorRef.current?.sendBackward()} />
-          <ToolButton icon={ChevronsDown} label="Arrière-plan" onClick={() => editorRef.current?.sendToBack()} />
+            {/* Group */}
+            <ToolButton icon={Group} label="Grouper" onClick={() => editorRef.current?.groupSelected()} />
+            <ToolButton icon={Ungroup} label="Dégrouper" onClick={() => editorRef.current?.ungroupSelected()} />
 
-          <div className="w-px h-8 bg-gray-200" />
-
-          {/* Group */}
-          <ToolButton icon={Group} label="Grouper" onClick={() => editorRef.current?.groupSelected()} />
-          <ToolButton icon={Ungroup} label="Dégrouper" onClick={() => editorRef.current?.ungroupSelected()} />
-
-          {/* Lock */}
-          {selectedObject.lockMovementX ? (
-            <ToolButton icon={Lock} label="Déverrouiller" onClick={() => {
-              selectedObject.set({
-                lockMovementX: false,
-                lockMovementY: false,
-                lockRotation: false,
-                lockScalingX: false,
-                lockScalingY: false,
-              });
-              editorRef.current?.getCanvas()?.requestRenderAll();
-            }} />
-          ) : (
-            <ToolButton icon={Unlock} label="Verrouiller" onClick={() => {
-              selectedObject.set({
-                lockMovementX: true,
-                lockMovementY: true,
-                lockRotation: true,
-                lockScalingX: true,
-                lockScalingY: true,
-              });
-              editorRef.current?.getCanvas()?.requestRenderAll();
-            }} />
-          )}
-        </>
-      )}
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Preview & Save & Publish */}
-      <ToolButton icon={Eye} label="Aperçu" onClick={onPreview} />
-      <button
-        onClick={onSave}
-        disabled={saving}
-        className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition-colors"
-      >
-        {saving ? (
-          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-        ) : (
-          <Save className="w-4 h-4" />
+            {/* Lock */}
+            {selectedObject.lockMovementX ? (
+              <ToolButton icon={Lock} label="Déverrouiller" onClick={() => {
+                selectedObject.set({
+                  lockMovementX: false,
+                  lockMovementY: false,
+                  lockRotation: false,
+                  lockScalingX: false,
+                  lockScalingY: false,
+                });
+                editorRef.current?.getCanvas()?.requestRenderAll();
+              }} />
+            ) : (
+              <ToolButton icon={Unlock} label="Verrouiller" onClick={() => {
+                selectedObject.set({
+                  lockMovementX: true,
+                  lockMovementY: true,
+                  lockRotation: true,
+                  lockScalingX: true,
+                  lockScalingY: true,
+                });
+                editorRef.current?.getCanvas()?.requestRenderAll();
+              }} />
+            )}
+          </>
         )}
-        {saving ? "Sauvegarde..." : (saveLabel ?? "Sauvegarder")}
-      </button>
-      {onPublish && (
+      </div>
+
+      {/* Right side: Actions */}
+      <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+        <ToolButton icon={Eye} label="Aperçu" onClick={onPreview} />
         <button
-          onClick={onPublish}
-          disabled={publishing}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+          onClick={onSave}
+          disabled={saving}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition-colors"
         >
-          {publishing ? (
+          {saving ? (
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
+            <Save className="w-4 h-4" />
           )}
-          {publishing ? "Publication..." : "Publier"}
+          {saving ? "Sauvegarde..." : (saveLabel ?? "Sauvegarder")}
         </button>
-      )}
-      <ToolButton
-        icon={Download}
-        label="Exporter PNG"
-        onClick={() => {
-          const url = editorRef.current?.toDataURL(3);
-          if (url) {
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${templateName || "template"}.png`;
-            a.click();
-          }
-        }}
-      />
+        {onPublish && (
+          <button
+            onClick={onPublish}
+            disabled={publishing}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {publishing ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+            )}
+            {publishing ? "Publication..." : "Publier"}
+          </button>
+        )}
+        <ToolButton
+          icon={Download}
+          label="Exporter PNG"
+          onClick={() => {
+            const url = editorRef.current?.toDataURL(3);
+            if (url) {
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${templateName || "template"}.png`;
+              a.click();
+            }
+          }}
+        />
+      </div>
     </div>
   );
 }

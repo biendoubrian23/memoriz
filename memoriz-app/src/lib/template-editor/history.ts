@@ -11,9 +11,11 @@ export class HistoryManager {
   private redoStack: string[] = [];
   private canvas: Canvas;
   private locked = false;
+  private afterRestore?: () => void;
 
-  constructor(canvas: Canvas) {
+  constructor(canvas: Canvas, afterRestore?: () => void) {
     this.canvas = canvas;
+    this.afterRestore = afterRestore;
     // Save initial state
     this.saveState();
   }
@@ -42,6 +44,7 @@ export class HistoryManager {
 
     const prev = this.undoStack[this.undoStack.length - 1];
     await this.canvas.loadFromJSON(prev);
+    this.afterRestore?.();
     this.canvas.requestRenderAll();
 
     this.locked = false;
@@ -57,6 +60,7 @@ export class HistoryManager {
     this.undoStack.push(state);
 
     await this.canvas.loadFromJSON(state);
+    this.afterRestore?.();
     this.canvas.requestRenderAll();
 
     this.locked = false;

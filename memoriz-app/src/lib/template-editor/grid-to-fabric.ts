@@ -36,12 +36,14 @@ function addPlaceholderRect(
     top,
     width,
     height,
-    fill: "#f3f4f6",
-    stroke: "#e5e7eb",
-    strokeWidth: 1,
+    fill: "transparent",
+    stroke: "#d1d5db", // gray-300
+    strokeWidth: 2,
+    strokeDashArray: [5, 5],
     rx: 4,
     ry: 4,
-    selectable: true,
+    selectable: false,
+    evented: true, // Crucial: must be true to receive drag & drop events!
     // Store metadata so we know this is a grid placeholder
     name: "grid-placeholder",
   });
@@ -63,9 +65,12 @@ export async function buildCanvasFromGrid(
   canvasWidth: number,
   canvasHeight: number,
 ): Promise<void> {
-  // Clear all existing objects (keep background)
-  canvas.getObjects().forEach((obj) => canvas.remove(obj));
-  canvas.backgroundColor = "#ffffff";
+  // Clear all existing objects (keep page rect and background)
+  canvas.getObjects().forEach((obj) => {
+    if ((obj as any).__isPageRect) return; // Keep the page rect
+    canvas.remove(obj);
+  });
+  canvas.backgroundColor = "#e5e7eb";
 
   for (const cell of cells) {
     // Convert percentage positions to absolute pixel positions

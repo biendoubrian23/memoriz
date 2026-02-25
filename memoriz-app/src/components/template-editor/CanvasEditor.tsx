@@ -13,7 +13,7 @@ import {
   useImperativeHandle,
 } from "react";
 import * as fabric from "fabric";
-import { createFabricCanvas, enableSnapping } from "@/lib/template-editor/fabric-init";
+import { createFabricCanvas, enableSnapping, enableBleedIndicators } from "@/lib/template-editor/fabric-init";
 import { HistoryManager } from "@/lib/template-editor/history";
 import { loadAllFonts } from "@/lib/template-editor/font-loader";
 import { CLIP_FRAME_PRESETS, createClipFrame } from "@/lib/template-editor/element-presets";
@@ -56,14 +56,18 @@ type Props = {
   onZoomChange?: (zoom: number) => void;
   /** Called when a layout card is dropped onto the canvas */
   onDropLayout?: (layoutId: string) => void;
+  /** Page navigation callbacks */
+  onNextPage?: () => void;
+  onPrevPage?: () => void;
 };
 
 const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
-  ({ width, height, onSelectionChange, onObjectModified, onCanvasReady, onZoomChange, onDropLayout }, ref) => {
+  ({ width, height, onSelectionChange, onObjectModified, onCanvasReady, onZoomChange, onDropLayout, onNextPage, onPrevPage }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fabricRef = useRef<fabric.Canvas | null>(null);
     const historyRef = useRef<HistoryManager | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const pageRectRef = useRef<fabric.Rect | null>(null);
     const [zoom, setZoomState] = useState(1);
     const [isPanning, setIsPanning] = useState(false);
     const panStart = useRef<{ x: number; y: number } | null>(null);
@@ -72,25 +76,84 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const [contextMenu, setContextMenu] = useState<{
       x: number;
       y: number;
-      target: fabric.Group;
+      target: fabric.FabricObject;
+      targetType: "group" | "image" | "other";
     } | null>(null);
-    const startCropModeRef = useRef<((group: fabric.Group) => void) | null>(null);
+    const startCropModeRef = useRef<((target: fabric.FabricObject) => void) | null>(null);
+
+    /* ── Helper: center the page in the container at a given zoom ── */
+    const centerPage = useCallback((canvas: fabric.Canvas, z: number) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const cW = container.clientWidth;
+      const cH = container.clientHeight;
+      const panX = (cW - width * z) / 2;
+      const panY = (cH - height * z) / 2;
+      canvas.setViewportTransform([z, 0, 0, z, panX, panY]);
+    }, [width, height]);
+
+    /* ── Helper: restore workspace after any loadFromJSON (undo/redo/load) ── */
+    const restoreWorkspace = useCallback((canvas: fabric.Canvas) => {
+      canvas.backgroundColor = "#e5e7eb";
+      if (pageRectRef.current) {
+        const existing = canvas.getObjects().find((o: any) => o.__isPageRect);
+        if (!existing) {
+          canvas.add(pageRectRef.current);
+        }
+        canvas.sendObjectToBack(pageRectRef.current);
+      }
+    }, []);
 
     /* ── Initialize canvas ── */
     useEffect(() => {
-      if (!canvasRef.current) return;
+      if (!canvasRef.current || !containerRef.current) return;
 
       // Load all Google Fonts
       loadAllFonts();
 
-      const canvas = createFabricCanvas(canvasRef.current, width, height);
+      // Canvas fills the entire container
+      const cW = containerRef.current.clientWidth;
+      const cH = containerRef.current.clientHeight;
+
+      const canvas = createFabricCanvas(canvasRef.current, cW, cH);
       fabricRef.current = canvas;
+
+      // Make canvas background a visible gray workspace (like Canva)
+      canvas.backgroundColor = "#e5e7eb";
+
+      // Add a white rectangle as the "page" — with a prominent shadow for clear boundary
+      const pageRect = new fabric.Rect({
+        left: 0,
+        top: 0,
+        width,
+        height,
+        fill: "#ffffff",
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
+        hoverCursor: "default",
+        shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.25)', blur: 30, offsetX: 0, offsetY: 2 }),
+      });
+      (pageRect as any).__isPageRect = true;
+      canvas.add(pageRect);
+      canvas.sendObjectToBack(pageRect);
+      pageRectRef.current = pageRect;
 
       // Enable snapping (pass page dimensions for accurate edge detection)
       enableSnapping(canvas, width, height);
 
-      // History manager
-      const history = new HistoryManager(canvas);
+      // Enable bleed indicators (dashed red lines when objects overflow)
+      enableBleedIndicators(canvas, width, height);
+
+      // Center the page at initial fit zoom
+      const fitZ = Math.min((cW - 60) / width, (cH - 60) / height, 1);
+      centerPage(canvas, fitZ);
+      setZoomState(fitZ);
+
+      // History manager (with afterRestore callback to keep workspace intact)
+      const history = new HistoryManager(canvas, () => {
+        restoreWorkspace(canvas);
+      });
       historyRef.current = history;
 
       // Event listeners
@@ -117,6 +180,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         canvas.dispose();
         fabricRef.current = null;
         historyRef.current = null;
+        pageRectRef.current = null;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [width, height]);
@@ -238,16 +302,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         e.stopPropagation();
 
         const currentZoom = canvas.getZoom();
-        // Smoother exponential zoom: small steps, consistent feel
         const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
         let newZoom = currentZoom * zoomFactor;
-        // Clamp between 25% and 400%
-        newZoom = Math.max(0.25, Math.min(4, newZoom));
-        // Snap to 100% when close
+        newZoom = Math.max(0.10, Math.min(4, newZoom));
         if (Math.abs(newZoom - 1) < 0.03) newZoom = 1;
 
-        const point = new fabric.Point(e.offsetX, e.offsetY);
-        canvas.zoomToPoint(point, newZoom);
+        // Same behavior as the slider: always center the page
+        centerPage(canvas, newZoom);
+        canvas.requestRenderAll();
         setZoomState(newZoom);
         onZoomChange?.(newZoom);
       };
@@ -256,7 +318,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       return () => {
         canvas.off("mouse:wheel", handleWheel);
       };
-    }, [onZoomChange]);
+    }, [onZoomChange, centerPage]);
 
     /* ── Pan mode ── */
     useEffect(() => {
@@ -378,7 +440,120 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         });
       };
 
-      startCropModeRef.current = startCropMode;
+      /* ── Standalone image crop mode ── */
+      let imageCropState: {
+        img: fabric.FabricImage;
+        cropRect: fabric.Rect;
+        originalOpacity: number;
+      } | null = null;
+
+      const startImageCropMode = (img: fabric.FabricImage) => {
+        // Create a crop rectangle matching current visible area
+        img.setCoords();
+        const tl = img.aCoords?.tl ?? new fabric.Point(img.left ?? 0, img.top ?? 0);
+
+        const imgWidth = (img.width ?? 100) * (img.scaleX ?? 1);
+        const imgHeight = (img.height ?? 100) * (img.scaleY ?? 1);
+
+        const cropRect = new fabric.Rect({
+          left: tl.x,
+          top: tl.y,
+          width: imgWidth,
+          height: imgHeight,
+          fill: "rgba(255,255,255,0.15)",
+          stroke: "#3b82f6",
+          strokeWidth: 2 / canvas.getZoom(),
+          strokeDashArray: [6, 4],
+          cornerColor: "#3b82f6",
+          cornerStyle: "circle",
+          cornerSize: 10,
+          transparentCorners: false,
+          hasRotatingPoint: false,
+          lockRotation: true,
+          selectable: true,
+          evented: true,
+          excludeFromExport: true,
+        });
+        (cropRect as any).__isCropRect = true;
+
+        // Dim the original image
+        const originalOpacity = img.opacity ?? 1;
+        img.set({ opacity: 0.4, selectable: false, evented: false });
+
+        canvas.add(cropRect);
+        canvas.setActiveObject(cropRect);
+        canvas.requestRenderAll();
+
+        imageCropState = { img, cropRect, originalOpacity };
+      };
+
+      const finishImageCrop = () => {
+        if (!imageCropState) return;
+        const { img, cropRect, originalOpacity } = imageCropState;
+
+        // Get crop rect bounds in canvas coordinates
+        const cropLeft = cropRect.left ?? 0;
+        const cropTop = cropRect.top ?? 0;
+        const cropW = (cropRect.width ?? 0) * (cropRect.scaleX ?? 1);
+        const cropH = (cropRect.height ?? 0) * (cropRect.scaleY ?? 1);
+
+        // Convert to source-image pixel coordinates based on actual rendering position
+        const imgScaleX = img.scaleX ?? 1;
+        const imgScaleY = img.scaleY ?? 1;
+
+        img.setCoords();
+        const tl = img.aCoords?.tl ?? new fabric.Point(img.left ?? 0, img.top ?? 0);
+
+        // Pixel offset within the source image where crop starts
+        const srcCropX = (cropLeft - tl.x) / imgScaleX;
+        const srcCropY = (cropTop - tl.y) / imgScaleY;
+        // Pixel dimensions of the cropped region
+        const srcCropW = cropW / imgScaleX;
+        const srcCropH = cropH / imgScaleY;
+
+        // Use Fabric's native cropX/cropY + width/height for proper bounding box
+        img.set({
+          cropX: Math.max(0, srcCropX + (img.cropX ?? 0)),
+          cropY: Math.max(0, srcCropY + (img.cropY ?? 0)),
+          width: srcCropW,
+          height: srcCropH,
+          originX: "left",
+          originY: "top",
+          left: cropLeft,
+          top: cropTop,
+          opacity: originalOpacity,
+          selectable: true,
+          evented: true,
+          dirty: true,
+        });
+
+        canvas.remove(cropRect);
+        canvas.setActiveObject(img);
+        canvas.requestRenderAll();
+        historyRef.current?.saveState();
+        imageCropState = null;
+      };
+
+      const cancelImageCrop = () => {
+        if (!imageCropState) return;
+        const { img, cropRect, originalOpacity } = imageCropState;
+        img.set({ opacity: originalOpacity, selectable: true, evented: true });
+        canvas.remove(cropRect);
+        canvas.requestRenderAll();
+        imageCropState = null;
+      };
+
+      startCropModeRef.current = (target: fabric.FabricObject) => {
+        // Case 1: Group (clip frame) crop
+        if (target.type === "group" || target.isType?.("group")) {
+          startCropMode(target as fabric.Group);
+          return;
+        }
+        // Case 2: Standalone image crop
+        if (target.type === "image" || target.isType?.("image")) {
+          startImageCropMode(target as fabric.FabricImage);
+        }
+      };
 
       const handleDoubleClick = (opt: fabric.TPointerEventInfo) => {
         let target = opt.target;
@@ -411,17 +586,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           if (target && target.group && (target.group as any).isImageFrame) {
             target = target.group;
           }
-          if (target && (target.type === "group" || target.isType?.("group"))) {
-            const group = target as fabric.Group;
-            const img = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image"));
-            const isFrameGroup = (group as any).isImageFrame || (group.clipPath && img);
-
-            if (isFrameGroup) {
-              // Show context menu with position (we use DOM coordinates)
-              setContextMenu({ x: evt.clientX, y: evt.clientY, target: group });
-              evt.preventDefault();
-              return;
+          // Show context menu for ANY selectable object (skip page rect)
+          if (target && !(target as any).__isPageRect) {
+            // Determine target type for conditional menu options
+            let targetType: "group" | "image" | "other" = "other";
+            if (target.type === "group" || target.isType?.("group")) {
+              const group = target as fabric.Group;
+              const img = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image"));
+              if ((group as any).isImageFrame || (group.clipPath && img)) {
+                targetType = "group";
+              }
+            } else if (target.type === "image" || target.isType?.("image")) {
+              targetType = "image";
             }
+            canvas.setActiveObject(target);
+            setContextMenu({ x: evt.clientX, y: evt.clientY, target, targetType });
+            evt.preventDefault();
+            return;
           }
           setContextMenu(null);
           return;
@@ -438,7 +619,13 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         lastClickTime = now;
         lastClickTarget = target;
 
-        if (!cropState) return;
+        if (!cropState) {
+          // Check standalone image crop state
+          if (imageCropState && opt.target !== imageCropState.cropRect) {
+            finishImageCrop();
+          }
+          return;
+        }
 
         // If they click on anything other than the cloneImg (or its controls), exit crop mode.
         if (opt.target !== cropState.cloneImg) {
@@ -494,7 +681,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       if (!canvas) return;
       const active = canvas.getActiveObjects();
       if (active.length === 0) return;
-      active.forEach((obj) => canvas.remove(obj));
+      // Never delete the page rect
+      active.forEach((obj) => {
+        if ((obj as any).__isPageRect) return;
+        canvas.remove(obj);
+      });
       canvas.discardActiveObject();
       canvas.requestRenderAll();
       historyRef.current?.saveState();
@@ -520,7 +711,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     const selectAll = useCallback(() => {
       const canvas = fabricRef.current;
       if (!canvas) return;
-      const objects = canvas.getObjects().filter((o) => !o.excludeFromExport);
+      const objects = canvas.getObjects().filter((o) => !o.excludeFromExport && !(o as any).__isPageRect);
       if (objects.length === 0) return;
       const selection = new fabric.ActiveSelection(objects, { canvas });
       canvas.setActiveObject(selection);
@@ -552,6 +743,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           canvas.bringObjectForward(obj);
           canvas.requestRenderAll();
           historyRef.current?.saveState();
+          onObjectModified?.();
         }
       },
       sendBackward: () => {
@@ -559,8 +751,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const obj = canvas?.getActiveObject();
         if (canvas && obj) {
           canvas.sendObjectBackwards(obj);
+          // Ensure page rect stays at bottom
+          if (pageRectRef.current) canvas.sendObjectToBack(pageRectRef.current);
           canvas.requestRenderAll();
           historyRef.current?.saveState();
+          onObjectModified?.();
         }
       },
       bringToFront: () => {
@@ -570,6 +765,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           canvas.bringObjectToFront(obj);
           canvas.requestRenderAll();
           historyRef.current?.saveState();
+          onObjectModified?.();
         }
       },
       sendToBack: () => {
@@ -577,8 +773,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const obj = canvas?.getActiveObject();
         if (canvas && obj) {
           canvas.sendObjectToBack(obj);
+          // Ensure page rect stays at bottom
+          if (pageRectRef.current) canvas.sendObjectToBack(pageRectRef.current);
           canvas.requestRenderAll();
           historyRef.current?.saveState();
+          onObjectModified?.();
         }
       },
       groupSelected: () => {
@@ -614,15 +813,17 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const canvas = fabricRef.current;
         if (!canvas) return;
         const z = Math.min(canvas.getZoom() * 1.15, 4);
-        canvas.setZoom(z);
+        centerPage(canvas, z);
+        canvas.requestRenderAll();
         setZoomState(z);
         onZoomChange?.(z);
       },
       zoomOut: () => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        const z = Math.max(canvas.getZoom() / 1.15, 0.25);
-        canvas.setZoom(z);
+        const z = Math.max(canvas.getZoom() / 1.15, 0.10);
+        centerPage(canvas, z);
+        canvas.requestRenderAll();
         setZoomState(z);
         onZoomChange?.(z);
       },
@@ -630,22 +831,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const canvas = fabricRef.current;
         const container = containerRef.current;
         if (!canvas || !container) return;
-        const containerW = container.clientWidth;
-        const containerH = container.clientHeight;
-        const canvasW = width;
-        const canvasH = height;
         const z = Math.min(
-          (containerW - 60) / canvasW,
-          (containerH - 60) / canvasH,
+          (container.clientWidth - 60) / width,
+          (container.clientHeight - 60) / height,
           1
         );
-        canvas.setZoom(z);
-        // Center
-        const vpt = canvas.viewportTransform;
-        if (vpt) {
-          vpt[4] = (containerW - canvasW * z) / 2;
-          vpt[5] = (containerH - canvasH * z) / 2;
-        }
+        centerPage(canvas, z);
         canvas.requestRenderAll();
         setZoomState(z);
         onZoomChange?.(z);
@@ -653,8 +844,9 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       setZoom: (z: number) => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        const clamped = Math.max(0.25, Math.min(4, z));
-        canvas.setZoom(clamped);
+        const clamped = Math.max(0.10, Math.min(4, z));
+        centerPage(canvas, clamped);
+        canvas.requestRenderAll();
         setZoomState(clamped);
         onZoomChange?.(clamped);
       },
@@ -667,14 +859,25 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       toDataURL: (multiplier = 2) => {
         const canvas = fabricRef.current;
         if (!canvas) return "";
-        // Reset zoom to 1 for export
-        const currentZoom = canvas.getZoom();
+        // Save current viewport
         const currentVpt = [...(canvas.viewportTransform || [1, 0, 0, 1, 0, 0])];
-        canvas.setZoom(1);
-        canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
-        const url = canvas.toDataURL({ format: "png", quality: 1, multiplier });
-        canvas.setZoom(currentZoom);
-        canvas.viewportTransform = currentVpt as fabric.TMat2D;
+        // Reset to identity (zoom 1, no pan) for clean export
+        canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+        // Temporarily set white bg for export (hide the gray workspace)
+        const origBg = canvas.backgroundColor;
+        canvas.backgroundColor = "#ffffff";
+        const url = canvas.toDataURL({
+          format: "png",
+          quality: 1,
+          multiplier,
+          left: 0,
+          top: 0,
+          width,
+          height,
+        });
+        // Restore
+        canvas.backgroundColor = origBg;
+        canvas.setViewportTransform(currentVpt as fabric.TMat2D);
         canvas.requestRenderAll();
         return url;
       },
@@ -685,6 +888,23 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           await canvas.loadFromJSON(json);
           // Verify canvas is still current (React Strict Mode may have disposed it)
           if (fabricRef.current !== canvas) return;
+
+          // ─── Re-apply workspace after JSON load (JSON overwrites backgroundColor) ───
+          canvas.backgroundColor = "#e5e7eb";
+
+          // Re-add page rect if it was lost during JSON load
+          if (pageRectRef.current) {
+            // Remove stale copy if present
+            const existing = canvas.getObjects().find((o: any) => o.__isPageRect);
+            if (!existing) {
+              canvas.add(pageRectRef.current);
+            }
+            canvas.sendObjectToBack(pageRectRef.current);
+          }
+
+          // Re-center the page
+          centerPage(canvas, canvas.getZoom());
+
           canvas.requestRenderAll();
           historyRef.current?.clear();
         } catch (err) {
@@ -694,7 +914,10 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       setBackgroundColor: (color: string) => {
         const canvas = fabricRef.current;
         if (!canvas) return;
-        canvas.backgroundColor = color;
+        // Set the page rect fill (not the workspace background)
+        if (pageRectRef.current) {
+          pageRectRef.current.set({ fill: color });
+        }
         canvas.requestRenderAll();
         historyRef.current?.saveState();
       },
@@ -702,8 +925,8 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const canvas = fabricRef.current;
         if (!canvas) return;
         const radian = (angle * Math.PI) / 180;
-        const x2 = Math.cos(radian) * canvas.getWidth();
-        const y2 = Math.sin(radian) * canvas.getHeight();
+        const x2 = Math.cos(radian) * width;
+        const y2 = Math.sin(radian) * height;
         const gradient = new fabric.Gradient({
           type: "linear",
           coords: { x1: 0, y1: 0, x2, y2 },
@@ -712,7 +935,10 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             color,
           })),
         });
-        canvas.backgroundColor = gradient;
+        // Apply gradient to page rect (not canvas workspace bg)
+        if (pageRectRef.current) {
+          pageRectRef.current.set({ fill: gradient });
+        }
         canvas.requestRenderAll();
         historyRef.current?.saveState();
       },
@@ -730,7 +956,12 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const canvas = fabricRef.current;
         if (!canvas) return;
         canvas.clear();
-        canvas.backgroundColor = "#ffffff";
+        canvas.backgroundColor = "#e5e7eb";
+        // Re-add page rect
+        if (pageRectRef.current) {
+          canvas.add(pageRectRef.current);
+          canvas.sendObjectToBack(pageRectRef.current);
+        }
         canvas.requestRenderAll();
         historyRef.current?.clear();
       },
@@ -741,10 +972,84 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     }));
 
     /* ── Drop handler: accept layouts and images dragged from the sidebar ── */
+    const dragTargetRef = useRef<fabric.FabricObject | null>(null);
+
+    const getDropTarget = useCallback((e: React.DragEvent) => {
+      const canvas = fabricRef.current;
+      if (!canvas) return null;
+
+      const canvasEl = canvas.getElement();
+      const rect = canvasEl.getBoundingClientRect();
+      const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+      const z = canvas.getZoom();
+      const canvasX = (e.clientX - rect.left - vpt[4]) / z;
+      const canvasY = (e.clientY - rect.top - vpt[5]) / z;
+      const dropPoint = new fabric.Point(canvasX, canvasY);
+
+      // Check objects top-to-bottom
+      const target = canvas.getObjects().slice().reverse().find((obj) => {
+        const objName = (obj as unknown as { name?: string }).name;
+        const isGrid = objName === "grid-placeholder" || objName === "grid-image";
+        const isFrame = (obj as any).isImageFrame === true;
+        if (!isGrid && !isFrame) return false;
+
+        // If the object uses an absolute clipPath (like grid images), 
+        // the drop must be inside the clipPath (the visible cell) 
+        //, not the full hidden image bounds.
+        if (obj.clipPath && obj.clipPath.absolutePositioned) {
+          return obj.clipPath.containsPoint(dropPoint);
+        }
+
+        return obj.containsPoint(dropPoint);
+      });
+      return { target, canvasX, canvasY };
+    }, []);
+
+    const clearDragHighlight = useCallback(() => {
+      if (dragTargetRef.current) {
+        const target = dragTargetRef.current;
+        const objName = (target as unknown as { name?: string }).name;
+
+        if (objName === "grid-placeholder") {
+          target.set({ stroke: "#d1d5db", strokeWidth: 2, fill: "transparent" });
+        } else {
+          target.set({ opacity: (target as any).__originalOpacity ?? 1 });
+          delete (target as any).__originalOpacity;
+        }
+        fabricRef.current?.requestRenderAll();
+        dragTargetRef.current = null;
+      }
+    }, []);
+
     const handleDragOver = useCallback((e: React.DragEvent) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
-    }, []);
+
+      const info = getDropTarget(e);
+      const target = info?.target ?? null;
+
+      if (target !== dragTargetRef.current) {
+        clearDragHighlight();
+        if (target) {
+          const objName = (target as unknown as { name?: string }).name;
+          if (objName === "grid-placeholder") {
+            // Highlight placeholder cell
+            target.set({ stroke: "#3b82f6", strokeWidth: 3, fill: "rgba(59, 130, 246, 0.15)" });
+          } else {
+            // Highlight existing image by dimming it
+            (target as any).__originalOpacity = target.opacity ?? 1;
+            target.set({ opacity: 0.6 });
+          }
+          fabricRef.current?.requestRenderAll();
+          dragTargetRef.current = target;
+        }
+      }
+    }, [getDropTarget, clearDragHighlight]);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+      e.preventDefault();
+      clearDragHighlight();
+    }, [clearDragHighlight]);
 
     const handleDrop = useCallback(
       async (e: React.DragEvent) => {
@@ -760,14 +1065,11 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         const canvas = fabricRef.current;
         if (!canvas) return;
 
-        // Convert screen coords to canvas coords
-        const canvasEl = canvas.getElement();
-        const rect = canvasEl.getBoundingClientRect();
-        const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
-        const z = canvas.getZoom();
-        const canvasX = (e.clientX - rect.left - vpt[4]) / z;
-        const canvasY = (e.clientY - rect.top - vpt[5]) / z;
-        const dropPoint = new fabric.Point(canvasX, canvasY);
+        clearDragHighlight(); // Wipe hover styles before dropping
+
+        const info = getDropTarget(e);
+        if (!info) return;
+        const { target: dropTarget, canvasX, canvasY } = info;
 
         /* ── Case 1.5: Clip Frame dropped onto canvas ── */
         const frameId = e.dataTransfer.getData("application/memoriz-clipframe");
@@ -797,16 +1099,6 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
           e.dataTransfer.getData("application/x-memoriz-image") ||
           e.dataTransfer.getData("text/plain");
         if (!url || !url.startsWith("http")) return;
-
-        // Check if drop is over a grid cell or a clip frame
-        // Reverse so we check top-most objects first
-        const dropTarget = canvas.getObjects().slice().reverse().find((obj) => {
-          const objName = (obj as unknown as { name?: string }).name;
-          const isGrid = objName === "grid-placeholder" || objName === "grid-image";
-          const isFrame = (obj as any).isImageFrame === true;
-          if (!isGrid && !isFrame) return false;
-          return obj.containsPoint(dropPoint);
-        });
 
         if (dropTarget) {
           const isFrame = (dropTarget as any).isImageFrame === true;
@@ -988,52 +1280,95 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
     return (
       <div
         ref={containerRef}
-        className="flex-1 flex items-center justify-center bg-gray-100 overflow-hidden"
-        style={{ position: "relative" }}
+        className="flex-1 bg-gray-100 overflow-hidden"
+        style={{ position: "relative", width: "100%", height: "100%" }}
         onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* Canvas wrapper with shadow to simulate a page */}
-        <div
-          className="shadow-2xl relative"
-          style={{
-            width: width * zoom,
-            height: height * zoom,
-            transform: `scale(1)`,
-            transformOrigin: "center center",
-          }}
-        >
-          <canvas ref={canvasRef} />
-        </div>
+        <canvas ref={canvasRef} />
+
+        {/* Floating page navigation buttons */}
+        {onPrevPage && (
+          <button
+            onClick={onPrevPage}
+            title="Page précédente"
+            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/80 hover:bg-white border border-gray-300 shadow-lg flex items-center justify-center transition-all hover:scale-110"
+          >
+            <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
+        {onNextPage && (
+          <button
+            onClick={onNextPage}
+            title="Page suivante"
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/80 hover:bg-white border border-gray-300 shadow-lg flex items-center justify-center transition-all hover:scale-110"
+          >
+            <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+
         {/* Right-click Context Menu */}
         {contextMenu && (
           <div
-            className="fixed z-[200] bg-white rounded-lg shadow-xl border border-gray-200 py-2 w-48"
+            className="fixed z-[200] bg-white rounded-lg shadow-xl border border-gray-200 py-1.5 w-52"
             style={{ top: contextMenu.y, left: contextMenu.x }}
             onMouseLeave={() => setContextMenu(null)}
           >
+            {/* Crop option — only for images and image-frame groups */}
+            {(contextMenu.targetType === "image" || contextMenu.targetType === "group") && (
+              <>
+                <button
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                  onClick={() => {
+                    const canvas = fabricRef.current;
+                    if (!canvas) return;
+                    setContextMenu(null);
+                    canvas.setActiveObject(contextMenu.target);
+                    if (startCropModeRef.current) {
+                      startCropModeRef.current(contextMenu.target);
+                    }
+                  }}
+                >
+                  <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3v4m0 0H3m4 0h10a2 2 0 012 2v10m0 0v4m0-4h4M7 7l10 10" />
+                  </svg>
+                  Rogner l&apos;image
+                </button>
+                <div className="border-t border-gray-100 my-1" />
+              </>
+            )}
+
+            {/* Duplicate */}
             <button
-              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
               onClick={() => {
-                const canvas = fabricRef.current;
-                if (!canvas) return;
-
-                // Discard context menu
                 setContextMenu(null);
-
-                // Active object for visual feedback
-                canvas.setActiveObject(contextMenu.target);
-
-                // Start crop mode using our ref
-                if (startCropModeRef.current) {
-                  startCropModeRef.current(contextMenu.target);
-                }
+                duplicateSelected();
               }}
             >
-              <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16h16M4 20h16M4 8h16M4 4h16" />
+              <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
-              Recadrer l'image
+              Dupliquer
+            </button>
+
+            {/* Delete */}
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+              onClick={() => {
+                setContextMenu(null);
+                deleteSelected();
+              }}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Supprimer
             </button>
           </div>
         )}
