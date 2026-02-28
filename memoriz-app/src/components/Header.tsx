@@ -87,67 +87,75 @@ export default function Header() {
             />
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden lg:flex items-center gap-1">
-            {/* Albums */}
-            <div
-              className="relative"
-              onMouseEnter={() => handleEnter("albums")}
-              onMouseLeave={handleLeave}
-            >
-              <Link
-                href="/albums"
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  openDropdown === "albums"
-                    ? "text-primary bg-primary/5"
-                    : "text-gray-700 hover:text-primary hover:bg-gray-50"
-                }`}
+          {/* Desktop Right Section (Nav + CTA) */}
+          <div className="hidden lg:flex items-center gap-4 xl:gap-8">
+            <nav className="flex items-center gap-1 sm:gap-2">
+              {/* Albums */}
+              <div
+                className="relative"
+                onMouseEnter={() => handleEnter("albums")}
+                onMouseLeave={handleLeave}
               >
-                Albums
+                <Link
+                  href="/albums"
+                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${openDropdown === "albums"
+                      ? "text-primary bg-primary/5"
+                      : "text-gray-700 hover:text-primary hover:bg-gray-50"
+                    }`}
+                >
+                  Albums
+                </Link>
+              </div>
+
+              {/* Magazines */}
+              <div
+                className="relative"
+                onMouseEnter={() => handleEnter("magazines")}
+                onMouseLeave={handleLeave}
+              >
+                <Link
+                  href="/magazines"
+                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${openDropdown === "magazines"
+                      ? "text-primary bg-primary/5"
+                      : "text-gray-700 hover:text-primary hover:bg-gray-50"
+                    }`}
+                >
+                  Magazines
+                </Link>
+              </div>
+
+              {/* Blog */}
+              <Link
+                href="/blog"
+                className="px-3 py-2 text-sm font-medium text-gray-700 hover:text-primary rounded-lg hover:bg-gray-50 transition-all duration-200"
+              >
+                Blog
+              </Link>
+
+              {/* Contact */}
+              <Link
+                href="/contact"
+                className="px-3 py-2 text-sm font-medium text-gray-700 hover:text-primary rounded-lg hover:bg-gray-50 transition-all duration-200"
+              >
+                Contact
+              </Link>
+            </nav>
+
+            {/* Desktop CTA */}
+            <div className="flex items-center gap-3">
+              <Link
+                href="/connexion"
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-primary transition-colors"
+              >
+                Connexion
+              </Link>
+              <Link
+                href="/#hero"
+                className="px-6 py-2.5 text-sm font-semibold text-white bg-primary rounded-full hover:bg-primary-dark transition-all duration-200 shadow-md hover:shadow-lg"
+              >
+                Créer mon souvenir
               </Link>
             </div>
-
-            {/* Magazines */}
-            <div
-              className="relative"
-              onMouseEnter={() => handleEnter("magazines")}
-              onMouseLeave={handleLeave}
-            >
-              <Link
-                href="/magazines"
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  openDropdown === "magazines"
-                    ? "text-primary bg-primary/5"
-                    : "text-gray-700 hover:text-primary hover:bg-gray-50"
-                }`}
-              >
-                Magazines
-              </Link>
-            </div>
-
-            {/* Contact */}
-            <Link
-              href="/contact"
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-primary rounded-lg hover:bg-gray-50 transition-all duration-200"
-            >
-              Contact
-            </Link>
-          </nav>
-
-          {/* Desktop CTA */}
-          <div className="hidden lg:flex items-center gap-3">
-            <Link
-              href="/connexion"
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-primary transition-colors"
-            >
-              Connexion
-            </Link>
-            <Link
-              href="/#hero"
-              className="px-6 py-2.5 text-sm font-semibold text-white bg-primary rounded-full hover:bg-primary-dark transition-all duration-200 shadow-md hover:shadow-lg"
-            >
-              Créer mon souvenir
-            </Link>
           </div>
 
           {/* Mobile menu button */}
@@ -188,11 +196,10 @@ export default function Header() {
                         >
                           <span className="group-hover:underline">{item.label}</span>
                           {item.badge && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              item.badge === "Populaire"
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.badge === "Populaire"
                                 ? "bg-primary/10 text-primary"
                                 : "bg-emerald-50 text-emerald-600"
-                            }`}>
+                              }`}>
                               {item.badge}
                             </span>
                           )}
@@ -217,11 +224,10 @@ export default function Header() {
                         >
                           <span className="group-hover:underline">{item.label}</span>
                           {item.badge && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              item.badge === "Nouveau"
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.badge === "Nouveau"
                                 ? "bg-emerald-50 text-emerald-600"
                                 : "bg-primary/10 text-primary"
-                            }`}>
+                              }`}>
                               {item.badge}
                             </span>
                           )}
@@ -263,13 +269,12 @@ export default function Header() {
                         >
                           <span className="group-hover:underline">{item.label}</span>
                           {item.badge && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              item.badge === "Populaire"
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.badge === "Populaire"
                                 ? "bg-primary/10 text-primary"
                                 : item.badge === "Tendance"
                                   ? "bg-amber-50 text-amber-600"
                                   : "bg-emerald-50 text-emerald-600"
-                            }`}>
+                              }`}>
                               {item.badge}
                             </span>
                           )}
@@ -294,13 +299,12 @@ export default function Header() {
                         >
                           <span className="group-hover:underline">{item.label}</span>
                           {item.badge && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              item.badge === "Nouveau"
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.badge === "Nouveau"
                                 ? "bg-emerald-50 text-emerald-600"
                                 : item.badge === "Tendance"
                                   ? "bg-amber-50 text-amber-600"
                                   : "bg-primary/10 text-primary"
-                            }`}>
+                              }`}>
                               {item.badge}
                             </span>
                           )}

@@ -90,8 +90,8 @@ export default function ThemesSection() {
               </div>
 
               {/* Image Content */}
-              <div className="relative w-full aspect-[4/3] sm:aspect-[4/3] lg:aspect-square px-3 sm:px-4 pb-3 sm:pb-4">
-                <div className="relative w-full h-full overflow-hidden rounded-xl sm:rounded-2xl">
+              <div className="relative w-full aspect-[4/3] lg:aspect-square mt-auto">
+                <div className="relative w-full h-full overflow-hidden rounded-t-[1.5rem] sm:rounded-t-[2rem]">
                   <Image
                     src={theme.image}
                     alt={theme.title}
@@ -99,6 +99,12 @@ export default function ThemesSection() {
                     className="object-cover transition-transform duration-500 group-hover:scale-105"
                     sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                   />
+                  {/* Hover Overlay */}
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                    <span className="px-6 py-2.5 bg-white/95 backdrop-blur-sm text-primary font-bold text-sm uppercase tracking-wider rounded-full shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
+                      Choisir
+                    </span>
+                  </div>
                 </div>
               </div>
             </Link>

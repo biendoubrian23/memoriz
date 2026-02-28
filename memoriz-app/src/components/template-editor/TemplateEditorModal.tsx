@@ -15,7 +15,7 @@ import TemplatePropertyPanel from "@/components/template-editor/PropertyPanel";
 import LayersPanel from "@/components/template-editor/LayersPanel";
 import { PAGE_SIZES, type PageSizeKey } from "@/lib/template-editor/fabric-init";
 import { saveTemplate, savePageFabricJSON } from "@/lib/template-editor/template-saver";
-import { buildCanvasFromGridSafe } from "@/lib/template-editor/grid-to-fabric";
+import { buildCanvasFromGridSafe, addGridToCanvas } from "@/lib/template-editor/grid-to-fabric";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { GridCell, PageElement, LayoutTemplate } from "@/lib/types/editor";
 import * as fabric from "fabric";
@@ -144,8 +144,7 @@ export default function TemplateEditorModal({
   const [canRedo, setCanRedo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  // Layout drop confirmation (shown when canvas has objects)
-  const [layoutDropConfirm, setLayoutDropConfirm] = useState<string | null>(null);
+
   const [templateName, setTemplateName] = useState(
     isPageMode ? (pageLabel ?? "Page") : `Template ${THEME_LABELS[themeId ?? ""] ?? themeId}`
   );
@@ -245,8 +244,8 @@ export default function TemplateEditorModal({
     setShowDraftPrompt(false);
   }, [effectiveThemeId]);
 
-  /* ── Apply a layout to the Fabric canvas ── */
-  const applyLayoutToCanvas = useCallback((layoutId: string) => {
+  /* ── Apply a layout to the Fabric canvas (adds grid as element, no clearing) ── */
+  const applyLayoutToCanvas = useCallback(async (layoutId: string) => {
     const canvas = editorRef.current?.getCanvas();
     if (!canvas) return;
 
@@ -257,7 +256,7 @@ export default function TemplateEditorModal({
     if (cells.length === 0) return;
 
     const dims = pageDimensions ?? { width: canvas.getWidth(), height: canvas.getHeight() };
-    buildCanvasFromGridSafe(canvas, cells, [], dims.width, dims.height);
+    await addGridToCanvas(canvas, cells, [], dims.width, dims.height);
     editorRef.current?.getHistory()?.saveState();
 
     // Also notify parent so layout_id gets persisted
@@ -266,16 +265,8 @@ export default function TemplateEditorModal({
 
   /** Called by CanvasEditor when a layout card is dropped onto the canvas */
   const handleDropLayout = useCallback((layoutId: string) => {
-    const canvas = editorRef.current?.getCanvas();
-    const hasObjects = canvas && canvas.getObjects().length > 0;
-
-    if (hasObjects) {
-      // Canvas has content → show confirmation dialog
-      setLayoutDropConfirm(layoutId);
-    } else {
-      // Canvas is empty → apply directly
-      applyLayoutToCanvas(layoutId);
-    }
+    // Grids are now added as elements — no confirmation needed
+    applyLayoutToCanvas(layoutId);
   }, [applyLayoutToCanvas]);
 
   // Auto-save function (debounced)
@@ -657,40 +648,7 @@ export default function TemplateEditorModal({
         </div>
       </div>
 
-      {/* Layout drop confirmation (canvas has content) */}
-      {layoutDropConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-[230] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-lg font-bold">
-                ⚠
-              </div>
-              <h3 className="text-lg font-bold text-gray-900">Changer la mise en page ?</h3>
-            </div>
-            <p className="text-gray-500 text-sm mb-6 leading-relaxed">
-              Appliquer cette mise en page va <strong className="text-gray-900">supprimer tous les éléments</strong> actuellement sur le canvas. Cette action est irréversible.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setLayoutDropConfirm(null)}
-                className="px-5 py-2.5 rounded-full text-sm font-medium text-gray-500 hover:bg-gray-100 transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => {
-                  const id = layoutDropConfirm;
-                  setLayoutDropConfirm(null);
-                  applyLayoutToCanvas(id);
-                }}
-                className="px-5 py-2.5 rounded-full text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors"
-              >
-                Oui, appliquer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Draft restore prompt */}
       {showDraftPrompt && pendingDraft.current && (

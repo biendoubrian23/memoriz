@@ -20,6 +20,8 @@ import {
   Loader2,
   Trash2,
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { CanvasEditorHandle } from "./CanvasEditor";
 import {
@@ -856,6 +858,7 @@ function LayoutsPanel({
   editorRef: React.RefObject<CanvasEditorHandle | null>;
 }) {
   const [view, setView] = useState<"main" | "grids" | "shapes" | "frames">("main");
+  const [selectedFrameCategory, setSelectedFrameCategory] = useState<string | null>(null);
 
   // Separate standard/cover layouts from freeform/fabric templates
   const standardLayouts = layouts.filter(
@@ -975,14 +978,70 @@ function LayoutsPanel({
       categories[preset.category].push(preset);
     });
 
+    if (selectedFrameCategory) {
+      const presets = categories[selectedFrameCategory] || [];
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-4 sticky top-0 bg-white z-10 py-2 border-b border-gray-100">
+            <button
+              onClick={() => setSelectedFrameCategory(null)}
+              className="p-1 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4 text-gray-600" />
+            </button>
+            <h3 className="text-sm font-bold text-gray-800">
+              {selectedFrameCategory}
+            </h3>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {presets.map((frame) => (
+              <button
+                key={frame.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/memoriz-clipframe", frame.id);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                onClick={() => {
+                  const canvas = editorRef.current?.getCanvas();
+                  if (!canvas) return;
+                  const obj = createClipFrame(canvas, frame);
+                  editorRef.current?.addObject(obj);
+                }}
+                className="aspect-square border border-gray-100 bg-gray-50/50 rounded-xl flex items-center justify-center hover:border-blue-400 hover:bg-blue-50/50 transition-all p-2 group"
+                title={frame.name}
+              >
+                <svg
+                  viewBox={frame.viewBox || "0 0 100 100"}
+                  className="w-full h-full text-gray-300 drop-shadow-sm group-hover:text-blue-200 transition-colors"
+                  fill="currentColor"
+                >
+                  <path d={frame.svgPath} />
+                </svg>
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <Header title="Cadres" />
 
         {Object.entries(categories).map(([catName, presets]) => (
-          <div key={catName} className="mb-4">
-            <h4 className="text-[11px] font-semibold text-gray-400 mb-2 uppercase">{catName}</h4>
-            <div className="grid grid-cols-3 gap-2">
+          <div key={catName}>
+            <div className="flex justify-between items-end mb-3 pr-1">
+              <h4 className="text-[13px] font-bold text-gray-800">{catName}</h4>
+              <button
+                onClick={() => setSelectedFrameCategory(catName)}
+                className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"
+              >
+                Afficher tout
+              </button>
+            </div>
+
+            <HorizontalScrollList>
               {presets.map((frame) => (
                 <button
                   key={frame.id}
@@ -997,7 +1056,7 @@ function LayoutsPanel({
                     const obj = createClipFrame(canvas, frame);
                     editorRef.current?.addObject(obj);
                   }}
-                  className="aspect-square border border-gray-100 bg-gray-50/50 rounded-xl flex items-center justify-center hover:border-blue-400 hover:bg-blue-50/50 transition-all p-2 group"
+                  className="shrink-0 w-24 aspect-square snap-start border border-gray-100 bg-gray-50/50 rounded-xl flex items-center justify-center hover:border-blue-400 hover:bg-blue-50/50 transition-all p-2 group"
                   title={frame.name}
                 >
                   <svg
@@ -1009,7 +1068,7 @@ function LayoutsPanel({
                   </svg>
                 </button>
               ))}
-            </div>
+            </HorizontalScrollList>
           </div>
         ))}
       </div>
@@ -1099,19 +1158,20 @@ function LayoutCard({ layout, onClick }: { layout: LayoutTemplate; onClick: () =
         <img
           src={layout.thumbnail_url!}
           alt={layout.name}
-          className="w-full h-full object-contain"
+          className="absolute inset-0 w-full h-full object-cover"
         />
       ) : (
-        <div className="w-full h-full relative p-1">
-          {cells.map((cell, i) => (
+        <div className="absolute inset-2 flex flex-col gap-1">
+          {cells.map((cell, idx) => (
             <div
-              key={i}
-              className="absolute bg-purple-100 border border-purple-200 rounded-sm"
+              key={idx}
+              className="bg-gray-200 rounded-sm"
               style={{
-                left: `${cell.x}%`,
-                top: `${cell.y}%`,
                 width: `${cell.w}%`,
                 height: `${cell.h}%`,
+                left: `${cell.x}%`,
+                top: `${cell.y}%`,
+                position: 'absolute'
               }}
             />
           ))}
@@ -1124,5 +1184,66 @@ function LayoutCard({ layout, onClick }: { layout: LayoutTemplate; onClick: () =
         </span>
       </div>
     </button>
+  );
+}
+
+/** Horizontal scroll list helper */
+export function HorizontalScrollList({ children }: { children: React.ReactNode }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showLeft, setShowLeft] = useState(false);
+  const [showRight, setShowRight] = useState(true);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+    setShowLeft(scrollLeft > 0);
+    // Add small threshold for floating point pixels
+    setShowRight(scrollLeft < scrollWidth - clientWidth - 2);
+  }, []);
+
+  useEffect(() => {
+    handleScroll();
+    window.addEventListener("resize", handleScroll);
+    return () => window.removeEventListener("resize", handleScroll);
+  }, [handleScroll, children]);
+
+  const scroll = (direction: "left" | "right") => {
+    if (!scrollRef.current) return;
+    const scrollAmount = scrollRef.current.clientWidth * 0.75;
+    scrollRef.current.scrollBy({ left: direction === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
+  };
+
+  return (
+    <div className="relative group/scroller">
+      {/* Left Arrow */}
+      {showLeft && (
+        <button
+          onClick={() => scroll("left")}
+          className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 w-7 h-7 bg-white shadow-md border border-gray-100 rounded-full flex items-center justify-center z-10 text-gray-600 hover:text-gray-900 hover:scale-105 transition-all opacity-0 group-hover/scroller:opacity-100 cursor-pointer"
+        >
+          <ChevronLeft className="w-4 h-4 ml-[-2px]" />
+        </button>
+      )}
+
+      {/* Scroll Container */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex gap-2 overflow-x-auto scrollbar-hide snap-x snap-mandatory relative"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
+        {children}
+      </div>
+
+      {/* Right Arrow */}
+      {showRight && (
+        <button
+          onClick={() => scroll("right")}
+          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 w-7 h-7 bg-white shadow-md border border-gray-100 rounded-full flex items-center justify-center z-10 text-gray-600 hover:text-gray-900 hover:scale-105 transition-all opacity-0 group-hover/scroller:opacity-100 cursor-pointer"
+        >
+          <ChevronRight className="w-4 h-4 mr-[-2px]" />
+        </button>
+      )}
+    </div>
   );
 }

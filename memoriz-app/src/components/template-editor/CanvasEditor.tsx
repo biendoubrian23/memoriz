@@ -380,6 +380,15 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         cloneImg: fabric.FabricImage;
         overlay: fabric.FabricObject;
       } | null = null;
+
+      /* ── Grid cell crop state ── */
+      let gridCellCropState: {
+        cellImg: fabric.FabricObject;
+        gridGroup: fabric.Group;
+        cloneImg: fabric.FabricImage;
+        overlay: fabric.FabricObject;
+      } | null = null;
+
       let lastClickTime = 0;
       let lastClickTarget: any = null;
 
@@ -543,13 +552,98 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         imageCropState = null;
       };
 
+      /* ── Grid cell crop mode ── */
+      const startGridCellCropMode = (cellImg: fabric.FabricObject, gridGroup: fabric.Group) => {
+        if (cellImg.type !== "image" && !cellImg.isType?.("image")) return;
+
+        const img = cellImg as fabric.FabricImage;
+        const naturalW = (img as any).originalNaturalW || img.width || 1;
+        const naturalH = (img as any).originalNaturalH || img.height || 1;
+
+        img.clone().then((cloneImg: any) => {
+          // Calculate the uncropped world position of the full image
+          const croppedMatrix = img.calcTransformMatrix();
+          const decomposed = fabric.util.qrDecompose(croppedMatrix);
+
+          const cropCenterX = (img.cropX || 0) + (img.width || 1) / 2;
+          const cropCenterY = (img.cropY || 0) + (img.height || 1) / 2;
+          const naturalCenterX = naturalW / 2;
+          const naturalCenterY = naturalH / 2;
+
+          const dx = naturalCenterX - cropCenterX;
+          const dy = naturalCenterY - cropCenterY;
+          const worldDx = dx * decomposed.scaleX;
+          const worldDy = dy * decomposed.scaleY;
+
+          cloneImg.set({
+            cropX: 0,
+            cropY: 0,
+            width: naturalW,
+            height: naturalH,
+            scaleX: decomposed.scaleX,
+            scaleY: decomposed.scaleY,
+            originX: "center",
+            originY: "center",
+            left: decomposed.translateX + worldDx,
+            top: decomposed.translateY + worldDy,
+            angle: decomposed.angle,
+            opacity: 0.6,
+            selectable: true,
+            hasControls: true,
+            hasBorders: true,
+            evented: true,
+          });
+
+          // Create the overlay window showing the fixed cell bounds
+          const overlay = new fabric.Rect({
+            left: decomposed.translateX,
+            top: decomposed.translateY,
+            width: (img.width || 1) * decomposed.scaleX,
+            height: (img.height || 1) * decomposed.scaleY,
+            originX: "center",
+            originY: "center",
+            fill: "rgba(0,0,0,0.05)",
+            stroke: "#3b82f6",
+            strokeWidth: 2 / canvas.getZoom(),
+            strokeDashArray: [5, 5],
+            selectable: false,
+            evented: false,
+            angle: decomposed.angle
+          });
+
+          cellImg.visible = false;
+          gridGroup.set('dirty', true);
+
+          canvas.add(overlay);
+          canvas.add(cloneImg);
+          canvas.setActiveObject(cloneImg);
+
+          gridCellCropState = { cellImg: img, gridGroup, cloneImg, overlay };
+          canvas.requestRenderAll();
+        });
+      };
+
       startCropModeRef.current = (target: fabric.FabricObject) => {
-        // Case 1: Group (clip frame) crop
+        // Case 1: Grid cell crop
+        if ((target as any).__isGridCell) {
+          const allObjs = canvas.getObjects();
+          for (const obj of allObjs) {
+            if ((obj as any).__isGrid && obj.type === "group") {
+              const grid = obj as fabric.Group;
+              if (grid.getObjects().includes(target)) {
+                startGridCellCropMode(target, grid);
+                return;
+              }
+            }
+          }
+          return;
+        }
+        // Case 2: Group (clip frame) crop
         if (target.type === "group" || target.isType?.("group")) {
           startCropMode(target as fabric.Group);
           return;
         }
-        // Case 2: Standalone image crop
+        // Case 3: Standalone image crop
         if (target.type === "image" || target.isType?.("image")) {
           startImageCropMode(target as fabric.FabricImage);
         }
@@ -559,6 +653,40 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         let target = opt.target;
         if (!target) return;
 
+        // Case 0: Grid cell double-click
+        // If they clicked the grid group directly (often happens if subTargetCheck fails to bubble the event)
+        if ((target as any).__isGrid && target.type === "group") {
+          const gridGroup = target as fabric.Group;
+          const pointer = canvas.getPointer(opt.e);
+          const cells = gridGroup.getObjects();
+          for (const cell of cells) {
+            if ((cell as any).__isGridCell && cell.containsPoint(pointer)) {
+              startGridCellCropMode(cell, gridGroup);
+              return;
+            }
+          }
+          return; // They clicked a gap in the grid or something
+        }
+
+        // If they directly targeted a grid cell
+        if ((target as any).__isGridCell) {
+          if (target.group && (target.group as any).__isGrid) {
+            startGridCellCropMode(target, target.group as fabric.Group);
+            return;
+          } else {
+            // Find parent if target.group is missing
+            const allObjs = canvas.getObjects();
+            for (const obj of allObjs) {
+              if ((obj as any).__isGrid && obj.type === "group") {
+                if ((obj as fabric.Group).getObjects().includes(target)) {
+                  startGridCellCropMode(target, obj as fabric.Group);
+                  return;
+                }
+              }
+            }
+          }
+        }
+
         // If the user clicked directly on the image inside the group
         if (target.group && (target.group as any).isImageFrame) {
           target = target.group;
@@ -567,8 +695,25 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         if (target.type === "group" || target.isType?.("group")) {
           const group = target as fabric.Group;
 
+          // Check if it's a grid group — subTargetCheck will handle cell clicks
+          if ((group as any).__isGrid) return;
+
+          // Check if it's a grid cell (fallback if group somehow got detached)
+          if ((group as any).__isGridCell) {
+            const allObjs = canvas.getObjects();
+            for (const obj of allObjs) {
+              if ((obj as any).__isGrid && obj.type === "group") {
+                const grid = obj as fabric.Group;
+                if (grid.getObjects().includes(group)) {
+                  startGridCellCropMode(group, grid);
+                  return;
+                }
+              }
+            }
+            return;
+          }
+
           // Fallback if isImageFrame is lost during serialization:
-          // A group is an image frame if it has a clipPath and contains an Image object.
           const img = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image")) as fabric.FabricImage | undefined;
 
           const isFrameGroup = (group as any).isImageFrame || (group.clipPath && img);
@@ -620,6 +765,68 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         lastClickTarget = target;
 
         if (!cropState) {
+          // Check grid cell crop state
+          if (gridCellCropState && opt.target !== gridCellCropState.cloneImg) {
+            const { cellImg, gridGroup, cloneImg, overlay } = gridCellCropState;
+            const img = cellImg as fabric.FabricImage;
+
+            const cloneWorldMatrix = cloneImg.calcTransformMatrix();
+            const cloneInverted = fabric.util.invertTransform(cloneWorldMatrix);
+
+            canvas.remove(overlay);
+            canvas.remove(cloneImg);
+
+            // Find where the cell's fixed center maps into the clone's source space
+            const cellWorldPt = new fabric.Point(overlay.left || 0, overlay.top || 0);
+            const localCenter = fabric.util.transformPoint(cellWorldPt, cloneInverted);
+
+            const naturalW = (img as any).originalNaturalW || img.width || 1;
+            const naturalH = (img as any).originalNaturalH || img.height || 1;
+
+            // localCenter is measured from center. Map to top-left of source:
+            const sourceX = localCenter.x + naturalW / 2;
+            const sourceY = localCenter.y + naturalH / 2;
+
+            const cellWorldW = overlay.width || 1;
+            const cellWorldH = overlay.height || 1;
+
+            const newScaleX = cloneImg.scaleX || 1;
+            const newScaleY = cloneImg.scaleY || 1;
+
+            const newCropW = cellWorldW / newScaleX;
+            const newCropH = cellWorldH / newScaleY;
+
+            const newCropX = sourceX - newCropW / 2;
+            const newCropY = sourceY - newCropH / 2;
+
+            // Re-apply scale to maintain the unscaled fixed cell bounds
+            const targetSize = (img as any).__cellBounds || { w: cellWorldW, h: cellWorldH };
+            const finalScaleX = targetSize.w / newCropW;
+            const finalScaleY = targetSize.h / newCropH;
+
+            img.set({
+              cropX: newCropX,
+              cropY: newCropY,
+              width: newCropW,
+              height: newCropH,
+              scaleX: finalScaleX,
+              scaleY: finalScaleY
+            });
+
+            img.visible = true;
+            img.setCoords();
+            img.set('dirty', true);
+
+            gridGroup.setCoords();
+            gridGroup.set('dirty', true);
+
+            canvas.setActiveObject(gridGroup);
+            gridCellCropState = null;
+            historyRef.current?.saveState();
+            canvas.requestRenderAll();
+            return;
+          }
+
           // Check standalone image crop state
           if (imageCropState && opt.target !== imageCropState.cropRect) {
             finishImageCrop();
@@ -854,7 +1061,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       toJSON: () => {
         const canvas = fabricRef.current;
         if (!canvas) return "";
-        return JSON.stringify((canvas as any).toJSON(['name', 'id', 'isImageFrame', 'isFrameImage', 'originalFrameId']));
+        return JSON.stringify((canvas as any).toJSON(['name', 'id', 'isImageFrame', 'isFrameImage', 'originalFrameId', '__isGrid', '__isGridCell', '__hasImage', '__cellBounds', 'subTargetCheck']));
       },
       toDataURL: (multiplier = 2) => {
         const canvas = fabricRef.current;
@@ -986,16 +1193,28 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
       const canvasY = (e.clientY - rect.top - vpt[5]) / z;
       const dropPoint = new fabric.Point(canvasX, canvasY);
 
-      // Check objects top-to-bottom
-      const target = canvas.getObjects().slice().reverse().find((obj) => {
+      // First, check for grid cells inside grid groups
+      const allObjects = canvas.getObjects().slice().reverse();
+      for (const obj of allObjects) {
+        if ((obj as any).__isGrid && obj.type === "group") {
+          const gridGroup = obj as fabric.Group;
+          const cells = gridGroup.getObjects();
+          for (const cell of cells) {
+            if (!(cell as any).__isGridCell) continue;
+            if (cell.containsPoint(dropPoint)) {
+              return { target: cell as fabric.FabricObject, canvasX, canvasY, gridGroup };
+            }
+          }
+        }
+      }
+
+      // Check standard targets (frames, old grid placeholders)
+      const target = allObjects.find((obj) => {
         const objName = (obj as unknown as { name?: string }).name;
         const isGrid = objName === "grid-placeholder" || objName === "grid-image";
         const isFrame = (obj as any).isImageFrame === true;
         if (!isGrid && !isFrame) return false;
 
-        // If the object uses an absolute clipPath (like grid images), 
-        // the drop must be inside the clipPath (the visible cell) 
-        //, not the full hidden image bounds.
         if (obj.clipPath && obj.clipPath.absolutePositioned) {
           return obj.clipPath.containsPoint(dropPoint);
         }
@@ -1012,6 +1231,15 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
 
         if (objName === "grid-placeholder") {
           target.set({ stroke: "#d1d5db", strokeWidth: 2, fill: "transparent" });
+        } else if (objName === "grid-cell" || (target as any).__isGridCell) {
+          target.set({
+            opacity: (target as any).__originalOpacity ?? 1,
+            stroke: (target as any).__originalStroke ?? null,
+            strokeWidth: (target as any).__originalStrokeWidth ?? 0
+          });
+          delete (target as any).__originalOpacity;
+          delete (target as any).__originalStroke;
+          delete (target as any).__originalStrokeWidth;
         } else {
           target.set({ opacity: (target as any).__originalOpacity ?? 1 });
           delete (target as any).__originalOpacity;
@@ -1033,10 +1261,14 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         if (target) {
           const objName = (target as unknown as { name?: string }).name;
           if (objName === "grid-placeholder") {
-            // Highlight placeholder cell
             target.set({ stroke: "#3b82f6", strokeWidth: 3, fill: "rgba(59, 130, 246, 0.15)" });
+          } else if (objName === "grid-cell" || (target as any).__isGridCell) {
+            // Highlight grid cell by adding a blue stroke
+            (target as any).__originalOpacity = target.opacity ?? 1;
+            (target as any).__originalStroke = target.stroke;
+            (target as any).__originalStrokeWidth = target.strokeWidth;
+            target.set({ opacity: 0.8, stroke: "#3b82f6", strokeWidth: 4, strokeUniform: true });
           } else {
-            // Highlight existing image by dimming it
             (target as any).__originalOpacity = target.opacity ?? 1;
             target.set({ opacity: 0.6 });
           }
@@ -1103,6 +1335,7 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
         if (dropTarget) {
           const isFrame = (dropTarget as any).isImageFrame === true;
           const targetName = (dropTarget as unknown as { name?: string }).name;
+          const isGridCell = (dropTarget as any).__isGridCell === true;
 
           try {
             const img = await fabric.FabricImage.fromURL(url, {
@@ -1111,7 +1344,101 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
             const imgW = img.width || 1;
             const imgH = img.height || 1;
 
-            if (isFrame) {
+            if (isGridCell) {
+              /* ── Photo dropped into a grid cell ── */
+              const oldCellObject = dropTarget;
+              const cellBounds = (oldCellObject as any).__cellBounds || {
+                w: (oldCellObject.width || 1) * (oldCellObject.scaleX || 1),
+                h: (oldCellObject.height || 1) * (oldCellObject.scaleY || 1),
+              };
+              const targetW = cellBounds.w;
+              const targetH = cellBounds.h;
+
+              // Scale to cover the cell
+              const naturalW = img.width || 1;
+              const naturalH = img.height || 1;
+              const scale = Math.max(targetW / naturalW, targetH / naturalH);
+
+              const cropW = targetW / scale;
+              const cropH = targetH / scale;
+              const cropX = (naturalW - cropW) / 2;
+              const cropY = (naturalH - cropH) / 2;
+
+              // Use setElement to keep group coordinate stability!
+              if (oldCellObject.type === "image" || oldCellObject.isType?.("image")) {
+                const cellImg = oldCellObject as fabric.FabricImage;
+                if (img.getElement()) {
+                  cellImg.setElement(img.getElement());
+                }
+
+                cellImg.set({
+                  width: naturalW,
+                  height: naturalH,
+                  scaleX: scale,
+                  scaleY: scale,
+                  cropX: cropX,
+                  cropY: cropY,
+                  name: "cell-image",
+                });
+
+                cellImg.setCoords();
+
+                (cellImg as any).isFrameImage = true;
+                (cellImg as any).__isGridCell = true;
+                (cellImg as any).__hasImage = true;
+                (cellImg as any).originalNaturalW = naturalW;
+                (cellImg as any).originalNaturalH = naturalH;
+                (cellImg as any).__cellBounds = cellBounds;
+
+              } else {
+                // It was a blank Rect, we must swap it
+                img.set({
+                  originX: oldCellObject.originX,
+                  originY: oldCellObject.originY,
+                  left: oldCellObject.left,
+                  top: oldCellObject.top,
+                  scaleX: scale,
+                  scaleY: scale,
+                  width: cropW, // if Rect, must specify cropW? No, width is naturalW!
+                  height: cropH,
+                  cropX: cropX,
+                  cropY: cropY,
+                  name: "cell-image",
+                });
+                // The above fallback sets the image if the placeholder was an empty Rect.
+                // We should fix the width/height property to mean unscaled natural size
+                img.set({ width: naturalW, height: naturalH });
+                img.setCoords();
+
+                (img as any).isFrameImage = true;
+                (img as any).__isGridCell = true;
+                (img as any).__hasImage = true;
+                (img as any).originalNaturalW = naturalW;
+                (img as any).originalNaturalH = naturalH;
+                (img as any).__cellBounds = cellBounds;
+
+                const gridGroup = (info as any).gridGroup as fabric.Group;
+                if (gridGroup) {
+                  const objects = gridGroup.getObjects();
+                  const index = objects.indexOf(oldCellObject);
+                  if (index > -1) {
+                    gridGroup.insertAt(index, img);
+                    gridGroup.remove(oldCellObject);
+                  }
+                }
+              }
+
+              const gridGroup = (info as any).gridGroup as fabric.Group;
+              if (gridGroup) {
+                gridGroup.setCoords();
+                gridGroup.set('dirty', true);
+              }
+
+              canvas.requestRenderAll();
+              historyRef.current?.saveState();
+              onObjectModified?.();
+
+            } else if (isFrame) {
               /* ── Photo dropped into a Canvas Frame (Blob, Shape, etc) ── */
               const bbox = dropTarget.getBoundingRect();
               const groupScaleX = dropTarget.scaleX || 1;
@@ -1135,19 +1462,51 @@ const CanvasEditor = forwardRef<CanvasEditorHandle, Props>(
               (img as any).isFrameImage = true;
 
               if (dropTarget.type === "group" || dropTarget.isType?.("group")) {
-                // Already a frame group, replace the image
+                // Already a frame group
                 const group = dropTarget as fabric.Group;
                 const oldImg = group.getObjects().find(o => (o as any).isFrameImage || o.type === "image" || o.isType?.("image"));
+
                 if (oldImg) {
+                  // Replace existing image
+                  img.clipPath = oldImg.clipPath; // preserve the clipping path
+                  const index = group.getObjects().indexOf(oldImg);
                   group.remove(oldImg);
+                  group.insertAt(index > -1 ? index : 0, img);
+                  canvas.setActiveObject(group);
+                  canvas.requestRenderAll();
+                  historyRef.current?.saveState();
+                  onObjectModified?.();
+                } else {
+                  // Empty frame group with decorators (e.g. device frames)
+                  // Find the mask path placeholder
+                  const maskShape = group.getObjects().find(o => (o as any).isImageFrame);
+                  if (maskShape) {
+                    maskShape.clone().then((clipPathObj: fabric.FabricObject) => {
+                      clipPathObj.set({
+                        left: 0,
+                        top: 0,
+                        originX: "center",
+                        originY: "center",
+                        absolutePositioned: false,
+                        scaleX: 1,
+                        scaleY: 1,
+                        angle: 0,
+                      });
+                      img.clipPath = clipPathObj;
+
+                      // Remove placeholder and add image at bottom (behind overlays)
+                      group.remove(maskShape);
+                      group.insertAt(0, img);
+
+                      canvas.setActiveObject(group);
+                      canvas.requestRenderAll();
+                      historyRef.current?.saveState();
+                      onObjectModified?.();
+                    });
+                  }
                 }
-                group.add(img);
-                canvas.setActiveObject(group);
-                canvas.requestRenderAll();
-                historyRef.current?.saveState();
-                onObjectModified?.();
               } else {
-                // Empty frame (fabric.Path)
+                // Empty standalone frame (fabric.Path)
                 dropTarget.clone().then((clipPathObj: fabric.FabricObject) => {
                   clipPathObj.set({
                     left: 0,
